@@ -1,0 +1,18 @@
+<resources>
+    <string name="app_name">JudgeX</string>
+    <string name="tagline">Smart Evaluation &amp; Screening System</string>
+    <string name="login">Login</string>
+    <string name="email">Email Address</string>
+    <string name="password">Password</string>
+    <string name="admin_dashboard">Admin Console</string>
+    <string name="judge_dashboard">Judge Panel</string>
+    <string name="scan_qr">Scan Team QR</string>
+    <string name="events">Events</string>
+    <string name="panels">Panels</string>
+    <string name="judges">Judges</string>
+    <string name="teams">Teams</string>
+    <string name="criteria">Criteria</string>
+    <string name="rankings">Rankings</string>
+    <string name="progress">Evaluation Progress</string>
+    <string name="logout">Sign Out</string>
+</resources>

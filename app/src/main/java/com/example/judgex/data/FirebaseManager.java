@@ -1,0 +1,349 @@
+package com.example.judgex.data;
+
+import android.content.Context;
+
+import com.example.judgex.models.Criterion;
+import com.example.judgex.models.Evaluation;
+import com.example.judgex.models.Event;
+import com.example.judgex.models.Panel;
+import com.example.judgex.models.Team;
+import com.example.judgex.models.User;
+import com.example.judgex.utils.Constants;
+import com.google.android.gms.tasks.Task;
+import com.google.android.gms.tasks.Tasks;
+import com.google.firebase.FirebaseApp;
+import com.google.firebase.FirebaseOptions;
+import com.google.firebase.auth.AuthResult;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.firestore.CollectionReference;
+import com.google.firebase.firestore.DocumentReference;
+import com.google.firebase.firestore.DocumentSnapshot;
+import com.google.firebase.firestore.FieldValue;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.Query;
+import com.google.firebase.firestore.QuerySnapshot;
+import com.google.firebase.firestore.SetOptions;
+import com.google.firebase.firestore.WriteBatch;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+public class FirebaseManager {
+    private static FirebaseManager instance;
+    private final FirebaseAuth auth;
+    private final FirebaseFirestore db;
+    private User currentUserProfile;
+
+    private FirebaseManager() {
+        auth = FirebaseAuth.getInstance();
+        db = FirebaseFirestore.getInstance();
+    }
+
+    public static synchronized FirebaseManager getInstance() {
+        if (instance == null) {
+            instance = new FirebaseManager();
+        }
+        return instance;
+    }
+
+    public FirebaseAuth getAuth() {
+        return auth;
+    }
+
+    public FirebaseFirestore getDb() {
+        return db;
+    }
+
+    public FirebaseUser getCurrentFirebaseUser() {
+        return auth.getCurrentUser();
+    }
+
+    public User getCurrentUserProfile() {
+        return currentUserProfile;
+    }
+
+    public void setCurrentUserProfile(User profile) {
+        this.currentUserProfile = profile;
+    }
+
+    public boolean isUserLoggedIn() {
+        return auth.getCurrentUser() != null;
+    }
+
+    public void signOut() {
+        auth.signOut();
+        currentUserProfile = null;
+    }
+
+    // --- Authentication & User Profile Operations ---
+
+    public Task<AuthResult> signIn(String email, String password) {
+        return auth.signInWithEmailAndPassword(email.trim(), password);
+    }
+
+    public Task<DocumentSnapshot> fetchUserProfile(String uid) {
+        return db.collection(Constants.COLLECTION_USERS).document(uid).get();
+    }
+
+    public Task<Void> saveUserProfile(User user) {
+        return db.collection(Constants.COLLECTION_USERS).document(user.getUid()).set(user);
+    }
+
+    /**
+     * Creates a Judge user without signing out the currently logged-in Admin,
+     * using an isolated secondary FirebaseApp instance.
+     */
+    public Task<String> createJudgeAccount(Context context, String email, String password, String name, String panelId) {
+        return Tasks.call(() -> {
+            FirebaseApp secondaryApp = null;
+            String uniqueAppName = "JudgeCreator_" + System.currentTimeMillis() + "_" + (int)(Math.random() * 10000);
+            try {
+                FirebaseOptions options = FirebaseApp.getInstance().getOptions();
+                secondaryApp = FirebaseApp.initializeApp(context.getApplicationContext(), options, uniqueAppName);
+
+                FirebaseAuth secondaryAuth = FirebaseAuth.getInstance(secondaryApp);
+                AuthResult result = Tasks.await(secondaryAuth.createUserWithEmailAndPassword(email.trim(), password));
+                if (result.getUser() == null) {
+                    throw new Exception("Failed to create judge authentication record");
+                }
+
+                String newUid = result.getUser().getUid();
+                String cleanPanelId = panelId != null ? panelId.trim() : "";
+                User judgeUser = new User(newUid, email.trim(), name.trim(), User.ROLE_JUDGE, cleanPanelId, System.currentTimeMillis());
+                
+                Tasks.await(db.collection(Constants.COLLECTION_USERS).document(newUid).set(judgeUser));
+
+                // If assigned to a panel, add judge UID to the panel's judgeIds
+                if (!cleanPanelId.isEmpty()) {
+                    try {
+                        Tasks.await(db.collection(Constants.COLLECTION_PANELS).document(cleanPanelId)
+                                .update("judgeIds", FieldValue.arrayUnion(newUid)));
+                    } catch (Exception e) {
+                        Map<String, Object> mergeData = new HashMap<>();
+                        mergeData.put("judgeIds", FieldValue.arrayUnion(newUid));
+                        Tasks.await(db.collection(Constants.COLLECTION_PANELS).document(cleanPanelId)
+                                .set(mergeData, SetOptions.merge()));
+                    }
+                }
+
+                secondaryAuth.signOut();
+                return newUid;
+            } finally {
+                if (secondaryApp != null) {
+                    try {
+                        secondaryApp.delete();
+                    } catch (Exception ignored) {}
+                }
+            }
+        });
+    }
+
+    // --- Event Operations ---
+
+    public CollectionReference getEventsCollection() {
+        return db.collection(Constants.COLLECTION_EVENTS);
+    }
+
+    public Task<DocumentReference> createEvent(Event event) {
+        DocumentReference docRef = db.collection(Constants.COLLECTION_EVENTS).document();
+        event.setId(docRef.getId());
+        return docRef.set(event).continueWith(task -> docRef);
+    }
+
+    public Task<Void> updateEvent(Event event) {
+        return db.collection(Constants.COLLECTION_EVENTS).document(event.getId()).set(event, SetOptions.merge());
+    }
+
+    public Task<Void> setEventLockStatus(String eventId, boolean isLocked) {
+        return db.collection(Constants.COLLECTION_EVENTS).document(eventId).update("locked", isLocked);
+    }
+
+    public Task<DocumentSnapshot> getEvent(String eventId) {
+        return db.collection(Constants.COLLECTION_EVENTS).document(eventId).get();
+    }
+
+    // --- Panel Operations ---
+
+    public CollectionReference getPanelsCollection() {
+        return db.collection(Constants.COLLECTION_PANELS);
+    }
+
+    public Task<DocumentReference> createPanel(Panel panel) {
+        DocumentReference docRef = db.collection(Constants.COLLECTION_PANELS).document();
+        panel.setId(docRef.getId());
+        return docRef.set(panel).continueWith(task -> docRef);
+    }
+
+    public Task<Void> updatePanel(Panel panel) {
+        return db.collection(Constants.COLLECTION_PANELS).document(panel.getId()).set(panel, SetOptions.merge());
+    }
+
+    public Task<QuerySnapshot> getPanelsForEvent(String eventId) {
+        return db.collection(Constants.COLLECTION_PANELS)
+                .whereEqualTo("eventId", eventId)
+                .get();
+    }
+
+    public Task<DocumentSnapshot> getPanel(String panelId) {
+        return db.collection(Constants.COLLECTION_PANELS).document(panelId).get();
+    }
+
+    // --- Judge Management Operations ---
+
+    public Task<QuerySnapshot> getAllJudges() {
+        return db.collection(Constants.COLLECTION_USERS).get();
+    }
+
+    public Task<Void> assignJudgeToPanel(String judgeUid, String panelId) {
+        String cleanPanelId = panelId != null ? panelId.trim() : "";
+        return db.collection(Constants.COLLECTION_USERS).document(judgeUid)
+                .get()
+                .continueWithTask(task -> {
+                    String oldPanelId = "";
+                    if (task.isSuccessful() && task.getResult() != null && task.getResult().exists()) {
+                        oldPanelId = task.getResult().getString("assignedPanelId");
+                    }
+
+                    WriteBatch batch = db.batch();
+
+                    // 1. Update user assignedPanelId
+                    DocumentReference userRef = db.collection(Constants.COLLECTION_USERS).document(judgeUid);
+                    batch.update(userRef, "assignedPanelId", cleanPanelId);
+
+                    // 2. Remove from old panel if changing
+                    if (oldPanelId != null && !oldPanelId.isEmpty() && !oldPanelId.equals(cleanPanelId)) {
+                        DocumentReference oldPanelRef = db.collection(Constants.COLLECTION_PANELS).document(oldPanelId);
+                        batch.update(oldPanelRef, "judgeIds", FieldValue.arrayRemove(judgeUid));
+                    }
+
+                    // 3. Add to new panel if specified
+                    if (!cleanPanelId.isEmpty()) {
+                        DocumentReference newPanelRef = db.collection(Constants.COLLECTION_PANELS).document(cleanPanelId);
+                        batch.update(newPanelRef, "judgeIds", FieldValue.arrayUnion(judgeUid));
+                    }
+
+                    return batch.commit();
+                });
+    }
+
+    // --- Criteria Operations ---
+
+    public CollectionReference getCriteriaCollection() {
+        return db.collection(Constants.COLLECTION_CRITERIA);
+    }
+
+    public Task<DocumentReference> createCriterion(Criterion criterion) {
+        DocumentReference docRef = db.collection(Constants.COLLECTION_CRITERIA).document();
+        criterion.setId(docRef.getId());
+        return docRef.set(criterion).continueWith(task -> docRef);
+    }
+
+    public Task<Void> updateCriterion(Criterion criterion) {
+        return db.collection(Constants.COLLECTION_CRITERIA).document(criterion.getId()).set(criterion, SetOptions.merge());
+    }
+
+    public Task<Void> deleteCriterion(String criterionId) {
+        return db.collection(Constants.COLLECTION_CRITERIA).document(criterionId).delete();
+    }
+
+    public Task<QuerySnapshot> getCriteriaForEvent(String eventId) {
+        return db.collection(Constants.COLLECTION_CRITERIA)
+                .whereEqualTo("eventId", eventId)
+                .get();
+    }
+
+    // --- Team Operations ---
+
+    public CollectionReference getTeamsCollection() {
+        return db.collection(Constants.COLLECTION_TEAMS);
+    }
+
+    public Task<DocumentReference> createTeam(Team team) {
+        DocumentReference docRef = db.collection(Constants.COLLECTION_TEAMS).document();
+        team.setId(docRef.getId());
+        return docRef.set(team).continueWithTask(task -> {
+            if (team.getPanelId() != null && !team.getPanelId().isEmpty()) {
+                return db.collection(Constants.COLLECTION_PANELS).document(team.getPanelId())
+                        .update("teamIds", FieldValue.arrayUnion(team.getId()))
+                        .continueWith(t -> docRef);
+            }
+            return Tasks.forResult(docRef);
+        });
+    }
+
+    public Task<Void> updateTeam(Team team) {
+        return db.collection(Constants.COLLECTION_TEAMS).document(team.getId()).set(team, SetOptions.merge());
+    }
+
+    public Task<QuerySnapshot> getTeamsForEvent(String eventId) {
+        return db.collection(Constants.COLLECTION_TEAMS)
+                .whereEqualTo("eventId", eventId)
+                .get();
+    }
+
+    public Task<QuerySnapshot> getTeamsForPanel(String panelId) {
+        return db.collection(Constants.COLLECTION_TEAMS)
+                .whereEqualTo("panelId", panelId)
+                .get();
+    }
+
+    public Task<DocumentSnapshot> getTeam(String teamId) {
+        return db.collection(Constants.COLLECTION_TEAMS).document(teamId).get();
+    }
+
+    // --- Evaluation Operations ---
+
+    public CollectionReference getEvaluationsCollection() {
+        return db.collection(Constants.COLLECTION_EVALUATIONS);
+    }
+
+    public Task<DocumentSnapshot> checkExistingEvaluation(String eventId, String teamId, String judgeId) {
+        String evalId = Evaluation.generateEvaluationId(eventId, teamId, judgeId);
+        return db.collection(Constants.COLLECTION_EVALUATIONS).document(evalId).get();
+    }
+
+    /**
+     * Submits an evaluation atomically with duplicate checking.
+     */
+    public Task<Void> submitEvaluation(Evaluation evaluation) {
+        String evalId = Evaluation.generateEvaluationId(
+                evaluation.getEventId(), 
+                evaluation.getTeamId(), 
+                evaluation.getJudgeId()
+        );
+        evaluation.setId(evalId);
+
+        DocumentReference evalRef = db.collection(Constants.COLLECTION_EVALUATIONS).document(evalId);
+        
+        // Execute atomic transaction to prevent duplicates and race conditions
+        return db.runTransaction(transaction -> {
+            DocumentSnapshot snapshot = transaction.get(evalRef);
+            if (snapshot.exists()) {
+                throw new IllegalStateException("An evaluation for this team by you has already been submitted!");
+            }
+            transaction.set(evalRef, evaluation);
+            return null;
+        });
+    }
+
+    public Task<QuerySnapshot> getEvaluationsForTeam(String teamId) {
+        return db.collection(Constants.COLLECTION_EVALUATIONS)
+                .whereEqualTo("teamId", teamId)
+                .get();
+    }
+
+    public Task<QuerySnapshot> getEvaluationsForEvent(String eventId) {
+        return db.collection(Constants.COLLECTION_EVALUATIONS)
+                .whereEqualTo("eventId", eventId)
+                .get();
+    }
+
+    public Task<QuerySnapshot> getEvaluationsByJudge(String judgeId) {
+        return db.collection(Constants.COLLECTION_EVALUATIONS)
+                .whereEqualTo("judgeId", judgeId)
+                .get();
+    }
+}

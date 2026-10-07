@@ -1,0 +1,86 @@
+package com.example.judgex.adapters;
+
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.TextView;
+
+import androidx.annotation.NonNull;
+import androidx.recyclerview.widget.RecyclerView;
+
+import com.example.judgex.R;
+import com.example.judgex.models.Panel;
+import com.example.judgex.models.User;
+
+import java.util.List;
+import java.util.Map;
+
+public class JudgeAdapter extends RecyclerView.Adapter<JudgeAdapter.JudgeViewHolder> {
+
+    public interface OnJudgeClickListener {
+        void onJudgeClick(User judge);
+    }
+
+    private final List<User> judgeList;
+    private final Map<String, Panel> panelMap; // panelId -> Panel
+    private final OnJudgeClickListener listener;
+
+    public JudgeAdapter(List<User> judgeList, Map<String, Panel> panelMap, OnJudgeClickListener listener) {
+        this.judgeList = judgeList;
+        this.panelMap = panelMap;
+        this.listener = listener;
+    }
+
+    @NonNull
+    @Override
+    public JudgeViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_judge, parent, false);
+        return new JudgeViewHolder(view);
+    }
+
+    @Override
+    public void onBindViewHolder(@NonNull JudgeViewHolder holder, int position) {
+        User judge = judgeList.get(position);
+        holder.tvJudgeName.setText(judge.getName() != null ? judge.getName() : "Judge");
+        holder.tvJudgeEmail.setText(judge.getEmail() != null ? judge.getEmail() : "");
+
+        String initial = judge.getName() != null && !judge.getName().isEmpty()
+                ? String.valueOf(judge.getName().charAt(0)).toUpperCase()
+                : "J";
+        holder.tvJudgeAvatar.setText(initial);
+
+        String panelId = judge.getAssignedPanelId();
+        if (panelId != null && !panelId.isEmpty() && panelMap != null && panelMap.containsKey(panelId)) {
+            Panel panel = panelMap.get(panelId);
+            holder.tvJudgePanelBadge.setText(panel != null ? panel.getName() : "Assigned");
+            holder.tvJudgePanelBadge.setVisibility(View.VISIBLE);
+        } else if (panelId != null && !panelId.isEmpty()) {
+            holder.tvJudgePanelBadge.setText("Assigned");
+            holder.tvJudgePanelBadge.setVisibility(View.VISIBLE);
+        } else {
+            holder.tvJudgePanelBadge.setText("Unassigned");
+            holder.tvJudgePanelBadge.setVisibility(View.VISIBLE);
+        }
+
+        holder.itemView.setOnClickListener(v -> {
+            if (listener != null) listener.onJudgeClick(judge);
+        });
+    }
+
+    @Override
+    public int getItemCount() {
+        return judgeList.size();
+    }
+
+    static class JudgeViewHolder extends RecyclerView.ViewHolder {
+        TextView tvJudgeAvatar, tvJudgeName, tvJudgeEmail, tvJudgePanelBadge;
+
+        public JudgeViewHolder(@NonNull View itemView) {
+            super(itemView);
+            tvJudgeAvatar = itemView.findViewById(R.id.tvJudgeAvatar);
+            tvJudgeName = itemView.findViewById(R.id.tvJudgeName);
+            tvJudgeEmail = itemView.findViewById(R.id.tvJudgeEmail);
+            tvJudgePanelBadge = itemView.findViewById(R.id.tvJudgePanelBadge);
+        }
+    }
+}

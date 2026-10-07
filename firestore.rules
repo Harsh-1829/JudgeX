@@ -1,0 +1,57 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+             (getUserDoc().data.role == 'ADMIN' || 
+              (request.auth.token.email != null && request.auth.token.email.matches('.*admin.*')));
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Events Collection
+    match /events/{eventId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Panels Collection
+    match /panels/{panelId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Criteria Collection
+    match /criteria/{criterionId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Teams Collection
+    match /teams/{teamId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Evaluations Collection
+    match /evaluations/{evalId} {
+      allow read: if isAuthenticated();
+      // Judges and Admins can submit evaluations; only Admin can delete
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdmin();
+    }
+  }
+}

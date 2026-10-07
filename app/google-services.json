@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "30871679704",
+    "project_id": "judgex-app",
+    "storage_bucket": "judgex-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:30871679704:android:87b6302e6ed7e21dc25dad",
+        "android_client_info": {
+          "package_name": "com.example.judgex"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDfLpnp0bbC-vXMkjmFidEq3Fv7flkwBx4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
