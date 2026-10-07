@@ -10,6 +10,7 @@ import com.example.judgex.models.Team;
 import com.example.judgex.models.User;
 import com.example.judgex.utils.Constants;
 import com.google.android.gms.tasks.Task;
+import com.google.android.gms.tasks.TaskCompletionSource;
 import com.google.android.gms.tasks.Tasks;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
@@ -94,51 +95,70 @@ public class FirebaseManager {
 
     /**
      * Creates a Judge user without signing out the currently logged-in Admin,
-     * using an isolated secondary FirebaseApp instance.
+     * using an isolated secondary FirebaseApp instance and non-blocking Task completion.
      */
     public Task<String> createJudgeAccount(Context context, String email, String password, String name, String panelId) {
-        return Tasks.call(() -> {
-            FirebaseApp secondaryApp = null;
-            String uniqueAppName = "JudgeCreator_" + System.currentTimeMillis() + "_" + (int)(Math.random() * 10000);
-            try {
-                FirebaseOptions options = FirebaseApp.getInstance().getOptions();
-                secondaryApp = FirebaseApp.initializeApp(context.getApplicationContext(), options, uniqueAppName);
+        TaskCompletionSource<String> tcs = new TaskCompletionSource<>();
+        String uniqueAppName = "JudgeCreator_" + System.currentTimeMillis() + "_" + (int)(Math.random() * 10000);
 
-                FirebaseAuth secondaryAuth = FirebaseAuth.getInstance(secondaryApp);
-                AuthResult result = Tasks.await(secondaryAuth.createUserWithEmailAndPassword(email.trim(), password));
-                if (result.getUser() == null) {
-                    throw new Exception("Failed to create judge authentication record");
-                }
+        try {
+            FirebaseOptions options = FirebaseApp.getInstance().getOptions();
+            FirebaseApp secondaryApp = FirebaseApp.initializeApp(context.getApplicationContext(), options, uniqueAppName);
+            FirebaseAuth secondaryAuth = FirebaseAuth.getInstance(secondaryApp);
 
-                String newUid = result.getUser().getUid();
-                String cleanPanelId = panelId != null ? panelId.trim() : "";
-                User judgeUser = new User(newUid, email.trim(), name.trim(), User.ROLE_JUDGE, cleanPanelId, System.currentTimeMillis());
-                
-                Tasks.await(db.collection(Constants.COLLECTION_USERS).document(newUid).set(judgeUser));
+            secondaryAuth.createUserWithEmailAndPassword(email.trim(), password)
+                    .addOnSuccessListener(authResult -> {
+                        if (authResult.getUser() == null) {
+                            cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                            tcs.setException(new Exception("Failed to create judge authentication record"));
+                            return;
+                        }
 
-                // If assigned to a panel, add judge UID to the panel's judgeIds
-                if (!cleanPanelId.isEmpty()) {
-                    try {
-                        Tasks.await(db.collection(Constants.COLLECTION_PANELS).document(cleanPanelId)
-                                .update("judgeIds", FieldValue.arrayUnion(newUid)));
-                    } catch (Exception e) {
-                        Map<String, Object> mergeData = new HashMap<>();
-                        mergeData.put("judgeIds", FieldValue.arrayUnion(newUid));
-                        Tasks.await(db.collection(Constants.COLLECTION_PANELS).document(cleanPanelId)
-                                .set(mergeData, SetOptions.merge()));
-                    }
-                }
+                        String newUid = authResult.getUser().getUid();
+                        String cleanPanelId = panelId != null ? panelId.trim() : "";
+                        User judgeUser = new User(newUid, email.trim(), name.trim(), User.ROLE_JUDGE, cleanPanelId, System.currentTimeMillis());
 
-                secondaryAuth.signOut();
-                return newUid;
-            } finally {
-                if (secondaryApp != null) {
-                    try {
-                        secondaryApp.delete();
-                    } catch (Exception ignored) {}
-                }
-            }
-        });
+                        // Save judge user profile in Firestore
+                        db.collection(Constants.COLLECTION_USERS).document(newUid).set(judgeUser)
+                                .addOnSuccessListener(aVoid -> {
+                                    // If assigned to a panel, update panel judgeIds
+                                    if (!cleanPanelId.isEmpty()) {
+                                        Map<String, Object> mergeData = new HashMap<>();
+                                        mergeData.put("judgeIds", FieldValue.arrayUnion(newUid));
+                                        db.collection(Constants.COLLECTION_PANELS).document(cleanPanelId)
+                                                .set(mergeData, SetOptions.merge())
+                                                .addOnCompleteListener(panelTask -> {
+                                                    cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                                                    tcs.setResult(newUid);
+                                                });
+                                    } else {
+                                        cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                                        tcs.setResult(newUid);
+                                    }
+                                })
+                                .addOnFailureListener(e -> {
+                                    cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                                    tcs.setException(e);
+                                });
+                    })
+                    .addOnFailureListener(e -> {
+                        cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                        tcs.setException(e);
+                    });
+        } catch (Exception e) {
+            tcs.setException(e);
+        }
+
+        return tcs.getTask();
+    }
+
+    private void cleanUpSecondaryApp(FirebaseApp app, FirebaseAuth auth) {
+        try {
+            if (auth != null) auth.signOut();
+        } catch (Exception ignored) {}
+        try {
+            if (app != null) app.delete();
+        } catch (Exception ignored) {}
     }
 
     // --- Event Operations ---
