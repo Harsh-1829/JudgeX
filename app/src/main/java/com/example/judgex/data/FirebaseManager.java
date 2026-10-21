@@ -63,6 +63,10 @@ public class FirebaseManager {
         return auth.getCurrentUser();
     }
 
+    public FirebaseUser getCurrentUser() {
+        return auth.getCurrentUser();
+    }
+
     public User getCurrentUserProfile() {
         return currentUserProfile;
     }
@@ -135,6 +139,36 @@ public class FirebaseManager {
                             if (existingUser.isTeamLeader()) {
                                 tcs.setException(new IllegalStateException(
                                         "This email is already registered as a Judge or Team Leader and cannot be assigned this role."));
+                                return;
+                            }
+
+                            if (existingUser.isDeleted()) {
+                                // Tombstoned judge account: Reactivate with active status and new assignments
+                                existingUser.setDeleted(false);
+                                existingUser.setStatus(User.STATUS_ACTIVE);
+                                existingUser.setActive(true);
+                                existingUser.setName(name.trim());
+                                if (!cleanEventId.isEmpty()) {
+                                    existingUser.setPanelForEvent(cleanEventId, cleanPanelId);
+                                }
+                                if (!cleanPanelId.isEmpty()) {
+                                    existingUser.setAssignedPanelId(cleanPanelId);
+                                }
+
+                                db.collection(Constants.COLLECTION_USERS).document(existingUser.getUid())
+                                        .set(existingUser, SetOptions.merge())
+                                        .addOnSuccessListener(aVoid -> {
+                                            if (!cleanPanelId.isEmpty()) {
+                                                Map<String, Object> mergeData = new HashMap<>();
+                                                mergeData.put("judgeIds", FieldValue.arrayUnion(existingUser.getUid()));
+                                                db.collection(Constants.COLLECTION_PANELS).document(cleanPanelId)
+                                                        .set(mergeData, SetOptions.merge())
+                                                        .addOnCompleteListener(task -> tcs.setResult(existingUser.getUid()));
+                                            } else {
+                                                tcs.setResult(existingUser.getUid());
+                                            }
+                                        })
+                                        .addOnFailureListener(tcs::setException);
                                 return;
                             }
 
@@ -227,7 +261,14 @@ public class FirebaseManager {
                     })
                     .addOnFailureListener(e -> {
                         cleanUpSecondaryApp(secondaryApp, secondaryAuth);
-                        tcs.setException(e);
+                        if (e instanceof com.google.firebase.auth.FirebaseAuthUserCollisionException) {
+                            String msg = "The email address '" + normalizedEmail + "' is already in use in Firebase Authentication. " +
+                                    "If this was a previously deleted test judge, please delete the authentication record in Firebase Console (Authentication > Users) " +
+                                    "or via Cloud Functions before re-registering.";
+                            tcs.setException(new Exception(msg, e));
+                        } else {
+                            tcs.setException(e);
+                        }
                     });
         } catch (Exception e) {
             tcs.setException(e);
@@ -672,5 +713,132 @@ public class FirebaseManager {
         return db.collection(Constants.COLLECTION_EVENTS)
                 .orderBy("createdAt", Query.Direction.DESCENDING)
                 .get();
+    }
+
+    public static class DeleteJudgeResult {
+        public final String judgeUid;
+        public final String judgeName;
+        public final String judgeEmail;
+        public final boolean success;
+        public final boolean evaluationsPreserved;
+        public final int evaluationCount;
+        public final boolean profileDeleted;
+        public final boolean authRequiresBackend;
+        public final String message;
+
+        public DeleteJudgeResult(String judgeUid, String judgeName, String judgeEmail,
+                                 boolean success, boolean evaluationsPreserved, int evaluationCount,
+                                 boolean profileDeleted, boolean authRequiresBackend, String message) {
+            this.judgeUid = judgeUid;
+            this.judgeName = judgeName;
+            this.judgeEmail = judgeEmail;
+            this.success = success;
+            this.evaluationsPreserved = evaluationsPreserved;
+            this.evaluationCount = evaluationCount;
+            this.profileDeleted = profileDeleted;
+            this.authRequiresBackend = authRequiresBackend;
+            this.message = message;
+        }
+    }
+
+    /**
+     * Permanently deletes a judge account or safely tombtones it if evaluation history exists:
+     * 1. Unassigns the judge from all panel assignments in Firestore.
+     * 2. Checks for historical submitted evaluations.
+     *    - If evaluations exist: Preserves them for leaderboard auditability while tombstoning the user
+     *      profile (status=DELETED, isActive=false) and clearing panel mappings.
+     *    - If no evaluations exist (clean test judge): Permanently deletes the Firestore user document.
+     * 3. Explains clearly that client-side Android SDK cannot delete Firebase Authentication records
+     *    belonging to other users without a trusted backend service (Firebase Admin SDK / Cloud Function).
+     */
+    public Task<DeleteJudgeResult> deleteJudgeAccount(User judge) {
+        TaskCompletionSource<DeleteJudgeResult> tcs = new TaskCompletionSource<>();
+
+        if (judge == null || judge.getUid() == null || judge.getUid().isEmpty()) {
+            tcs.setException(new IllegalArgumentException("Invalid judge record"));
+            return tcs.getTask();
+        }
+
+        final String judgeUid = judge.getUid();
+        final String judgeName = judge.getName() != null ? judge.getName() : "Judge";
+        final String judgeEmail = judge.getEmail() != null ? judge.getEmail() : "";
+
+        // Step 1: Check for historical evaluations
+        db.collection(Constants.COLLECTION_EVALUATIONS)
+                .whereEqualTo("judgeId", judgeUid)
+                .get()
+                .addOnSuccessListener(evalSnap -> {
+                    final int evalCount = (evalSnap != null) ? evalSnap.size() : 0;
+                    final boolean hasEvaluations = evalCount > 0;
+
+                    // Step 2: Query panels that contain this judge in judgeIds
+                    db.collection(Constants.COLLECTION_PANELS)
+                            .whereArrayContains("judgeIds", judgeUid)
+                            .get()
+                            .addOnSuccessListener(panelSnap -> {
+                                WriteBatch batch = db.batch();
+
+                                if (panelSnap != null && !panelSnap.isEmpty()) {
+                                    for (DocumentSnapshot pDoc : panelSnap.getDocuments()) {
+                                        batch.update(pDoc.getReference(), "judgeIds", FieldValue.arrayRemove(judgeUid));
+                                    }
+                                }
+
+                                if (judge.getAssignedPanelId() != null && !judge.getAssignedPanelId().isEmpty()) {
+                                    DocumentReference assignedPanelRef = db.collection(Constants.COLLECTION_PANELS).document(judge.getAssignedPanelId());
+                                    batch.update(assignedPanelRef, "judgeIds", FieldValue.arrayRemove(judgeUid));
+                                }
+
+                                DocumentReference userRef = db.collection(Constants.COLLECTION_USERS).document(judgeUid);
+
+                                if (hasEvaluations) {
+                                    // Preserve historical evaluations: tombstone profile
+                                    judge.setDeleted(true);
+                                    judge.setStatus(User.STATUS_DELETED);
+                                    judge.setActive(false);
+                                    judge.setAssignedPanelId("");
+                                    if (judge.getEventPanelAssignments() != null) {
+                                        judge.getEventPanelAssignments().clear();
+                                    }
+                                    batch.set(userRef, judge, SetOptions.merge());
+                                } else {
+                                    // Clean test judge with no evaluations: delete user document completely
+                                    batch.delete(userRef);
+                                }
+
+                                batch.commit()
+                                        .addOnSuccessListener(aVoid -> {
+                                            String outcomeMsg = hasEvaluations
+                                                    ? "Judge profile unassigned and removed from active lists. " + evalCount + " historical evaluation(s) preserved for competition scoring."
+                                                    : "Judge profile and panel assignments completely deleted.";
+                                            tcs.setResult(new DeleteJudgeResult(
+                                                    judgeUid, judgeName, judgeEmail,
+                                                    true, hasEvaluations, evalCount,
+                                                    !hasEvaluations, true, outcomeMsg
+                                            ));
+                                        })
+                                        .addOnFailureListener(tcs::setException);
+                            })
+                            .addOnFailureListener(tcs::setException);
+                })
+                .addOnFailureListener(tcs::setException);
+
+        return tcs.getTask();
+    }
+
+    /**
+     * Batch deletes multiple judge accounts safely.
+     */
+    public Task<List<DeleteJudgeResult>> deleteJudgeAccounts(List<User> judges) {
+        if (judges == null || judges.isEmpty()) {
+            return Tasks.forResult(new ArrayList<DeleteJudgeResult>());
+        }
+
+        List<Task<DeleteJudgeResult>> tasks = new ArrayList<>();
+        for (User j : judges) {
+            tasks.add(deleteJudgeAccount(j));
+        }
+
+        return Tasks.whenAllSuccess(tasks);
     }
 }

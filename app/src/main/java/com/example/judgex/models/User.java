@@ -10,6 +10,7 @@ public class User implements Serializable {
     public static final String STATUS_ACTIVE = "ACTIVE";
     public static final String STATUS_INACTIVE = "INACTIVE";
     public static final String STATUS_DEACTIVATED = "DEACTIVATED";
+    public static final String STATUS_DELETED = "DELETED";
 
     private String uid;
     private String email;
@@ -22,6 +23,7 @@ public class User implements Serializable {
     private String organizationName;
     private String status; // ACTIVE or INACTIVE
     private boolean active;
+    private boolean deleted;
     private long createdAt;
 
     public User() {
@@ -142,10 +144,26 @@ public class User implements Serializable {
     public void setStatus(String status) {
         this.status = status;
         this.active = STATUS_ACTIVE.equalsIgnoreCase(status);
+        if (STATUS_DELETED.equalsIgnoreCase(status)) {
+            this.deleted = true;
+            this.active = false;
+        }
+    }
+
+    public boolean isDeleted() {
+        return deleted || STATUS_DELETED.equalsIgnoreCase(this.status);
+    }
+
+    public void setDeleted(boolean deleted) {
+        this.deleted = deleted;
+        if (deleted) {
+            this.status = STATUS_DELETED;
+            this.active = false;
+        }
     }
 
     public boolean isActive() {
-        return active && !STATUS_INACTIVE.equalsIgnoreCase(this.status) && !STATUS_DEACTIVATED.equalsIgnoreCase(this.status);
+        return active && !isDeleted() && !STATUS_INACTIVE.equalsIgnoreCase(this.status) && !STATUS_DEACTIVATED.equalsIgnoreCase(this.status);
     }
 
     public void setActive(boolean active) {

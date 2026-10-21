@@ -278,4 +278,28 @@ public class WorkflowAndTenancyTest {
         String trimmed = rawPayload.trim();
         assertEquals("TM-42", trimmed);
     }
+
+    @Test
+    public void testJudgeDeletionLifecycleAndAdminProtection() {
+        User judge = new User("j_test_del", "judge_del@test.com", "Test Judge", User.ROLE_JUDGE, "panel_1", System.currentTimeMillis());
+        assertTrue("Newly created judge should be active", judge.isActive());
+        assertFalse("Newly created judge should not be deleted", judge.isDeleted());
+
+        // Delete judge: should mark status DELETED and isActive false
+        judge.setDeleted(true);
+        assertTrue("Judge should be marked deleted", judge.isDeleted());
+        assertEquals(User.STATUS_DELETED, judge.getStatus());
+        assertFalse("Deleted judge should not be active", judge.isActive());
+
+        // Re-activating tombstoned judge
+        judge.setDeleted(false);
+        judge.setStatus(User.STATUS_ACTIVE);
+        assertFalse("Reactivated judge should not be deleted", judge.isDeleted());
+        assertTrue("Reactivated judge should be active", judge.isActive());
+
+        // Admin account protection check
+        User admin = new User("admin_123", "admin@judgex.com", "Main Admin", User.ROLE_ADMIN, null, System.currentTimeMillis());
+        assertTrue("Admin user should be recognized as admin", admin.isAdmin());
+        assertFalse("Admin user should not be recognized as judge", admin.isJudge());
+    }
 }

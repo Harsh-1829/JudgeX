@@ -45,7 +45,7 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
     private ExtendedFloatingActionButton fabAddJudge;
     private MaterialCheckBox cbSelectAll;
     private TextView tvSelectionCount;
-    private MaterialButton btnAssignToPanel, btnAutoAssign;
+    private MaterialButton btnAssignToPanel, btnAutoAssign, btnDeleteJudges;
 
     private final FirebaseManager firebaseManager = FirebaseManager.getInstance();
     private final List<User> judgeList = new ArrayList<>();
@@ -80,6 +80,7 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
         tvSelectionCount = findViewById(R.id.tvSelectionCount);
         btnAssignToPanel = findViewById(R.id.btnAssignToPanel);
         btnAutoAssign = findViewById(R.id.btnAutoAssign);
+        btnDeleteJudges = findViewById(R.id.btnDeleteJudges);
 
         toolbar.setNavigationOnClickListener(v -> finish());
         toolbar.inflateMenu(R.menu.menu_judge_manager);
@@ -96,6 +97,14 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
         adapter.setSelectionListener(count -> {
             tvSelectionCount.setText(count + " selected");
             cbSelectAll.setChecked(count > 0 && count == judgeList.size());
+            if (count > 0) {
+                btnDeleteJudges.setText("Delete (" + count + ")");
+                btnDeleteJudges.setVisibility(View.VISIBLE);
+                btnAutoAssign.setVisibility(View.GONE);
+            } else {
+                btnDeleteJudges.setVisibility(View.GONE);
+                btnAutoAssign.setVisibility(View.VISIBLE);
+            }
         });
         recyclerViewJudges.setAdapter(adapter);
 
@@ -109,6 +118,7 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
 
         btnAssignToPanel.setOnClickListener(v -> handleBatchAssignToPanel());
         btnAutoAssign.setOnClickListener(v -> handleAutoAssignJudges());
+        btnDeleteJudges.setOnClickListener(v -> handleBatchDeleteJudges());
 
         swipeRefreshLayout.setOnRefreshListener(this::loadPanelsAndJudges);
         fabAddJudge.setOnClickListener(v -> showAddJudgeDialog());
@@ -163,7 +173,10 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
                     for (DocumentSnapshot doc : querySnapshot.getDocuments()) {
                         User user = doc.toObject(User.class);
                         if (user != null) {
-                            user.setUid(doc.getId());
+                            // Skip deleted judge accounts
+                            if (user.isDeleted()) {
+                                continue;
+                            }
                             // Show in judge list if role is JUDGE or not ADMIN
                             if (user.isJudge() || (user.getRole() != null && !user.isAdmin())) {
                                 judgeList.add(user);
@@ -271,7 +284,8 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
         String[] options = {
                 "Assign / Reassign Panel",
                 "Remove from This Event",
-                statusLabel
+                statusLabel,
+                "Delete Judge Account"
         };
 
         new AlertDialog.Builder(this)
@@ -286,6 +300,9 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
                             break;
                         case 2:
                             handleToggleJudgeActiveStatus(judge);
+                            break;
+                        case 3:
+                            handleDeleteJudgeAccount(judge);
                             break;
                     }
                 })
@@ -384,6 +401,141 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
                     .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
                     .show();
         }
+    }
+
+    private boolean isDeletableJudge(User judge, boolean showToast) {
+        if (judge == null) {
+            if (showToast) UIUtils.showToast(this, "Invalid judge record.");
+            return false;
+        }
+        String currentAdminUid = firebaseManager.getCurrentUser() != null
+                ? firebaseManager.getCurrentUser().getUid() : null;
+        String currentAdminEmail = firebaseManager.getCurrentUser() != null
+                ? firebaseManager.getCurrentUser().getEmail() : null;
+
+        if (judge.getUid() != null && judge.getUid().equals(currentAdminUid)) {
+            if (showToast) UIUtils.showToast(this, "Cannot delete the currently signed-in administrator account.");
+            return false;
+        }
+
+        if (judge.getEmail() != null && currentAdminEmail != null
+                && judge.getEmail().equalsIgnoreCase(currentAdminEmail)) {
+            if (showToast) UIUtils.showToast(this, "Cannot delete the currently signed-in administrator account.");
+            return false;
+        }
+
+        if (judge.isAdmin() || (judge.getRole() != null && !judge.isJudge())) {
+            if (showToast) UIUtils.showToast(this, "Only judge accounts can be deleted from this screen.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private void handleDeleteJudgeAccount(User judge) {
+        if (!isDeletableJudge(judge, true)) {
+            return;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Delete Judge Account: " + (judge.getName() != null ? judge.getName() : "Judge"))
+                .setMessage("Are you sure you want to permanently delete this judge account?\n\n" +
+                        "• Name: " + (judge.getName() != null ? judge.getName() : "Judge") + "\n" +
+                        "• Email: " + judge.getEmail() + "\n\n" +
+                        "WARNING: This action is permanent. The judge will be removed from all panel assignments and active judge lists.\n\n" +
+                        "• If this judge submitted competition evaluations, those scoring records will be preserved for leaderboard auditability, but the account will be deleted and unassigned.\n" +
+                        "• If this is a test account without evaluations, the profile will be completely deleted from the database.\n\n" +
+                        "Proceed with permanent deletion?")
+                .setPositiveButton("Delete Judge Account", (dialog, which) -> {
+                    Dialog loading = UIUtils.showLoadingDialog(this, "Deleting judge account...");
+                    firebaseManager.deleteJudgeAccount(judge)
+                            .addOnSuccessListener(result -> {
+                                loading.dismiss();
+                                adapter.clearSelection();
+                                loadPanelsAndJudges();
+                                showDeleteOutcomeDialog("Judge Account Deleted",
+                                        result.message + "\n\n" +
+                                        "Note: To permanently remove the login credential from Firebase Authentication without a deployed Cloud Function, delete the user in Firebase Console (Authentication > Users).");
+                            })
+                            .addOnFailureListener(e -> {
+                                loading.dismiss();
+                                new AlertDialog.Builder(this)
+                                        .setTitle("Deletion Failed")
+                                        .setMessage("Failed to delete judge account: " + e.getMessage())
+                                        .setPositiveButton("OK", (d, w) -> d.dismiss())
+                                        .show();
+                            });
+                })
+                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                .show();
+    }
+
+    private void handleBatchDeleteJudges() {
+        List<User> selectedJudges = adapter.getSelectedJudges();
+        if (selectedJudges.isEmpty()) {
+            UIUtils.showToast(this, "Please select at least one judge to delete.");
+            return;
+        }
+
+        List<User> validJudges = new ArrayList<>();
+        int excludedCount = 0;
+        for (User j : selectedJudges) {
+            if (isDeletableJudge(j, false)) {
+                validJudges.add(j);
+            } else {
+                excludedCount++;
+            }
+        }
+
+        if (validJudges.isEmpty()) {
+            UIUtils.showToast(this, "No deletable judge accounts selected.");
+            return;
+        }
+
+        StringBuilder summary = new StringBuilder();
+        summary.append("Are you sure you want to permanently delete ").append(validJudges.size()).append(" judge account(s)?\n\n");
+        for (User j : validJudges) {
+            summary.append("• ").append(j.getName() != null ? j.getName() : "Judge").append(" (").append(j.getEmail()).append(")\n");
+        }
+        if (excludedCount > 0) {
+            summary.append("\nNote: ").append(excludedCount).append(" account(s) (administrator or non-judge) were excluded for safety.\n");
+        }
+        summary.append("\nWARNING: This action is permanent. The selected judges will be unassigned from all panels and deleted.\n\nProceed with permanent deletion?");
+
+        new AlertDialog.Builder(this)
+                .setTitle("Delete " + validJudges.size() + " Judge Accounts")
+                .setMessage(summary.toString())
+                .setPositiveButton("Delete " + validJudges.size() + " Accounts", (dialog, which) -> {
+                    Dialog loading = UIUtils.showLoadingDialog(this, "Deleting " + validJudges.size() + " judge accounts...");
+                    firebaseManager.deleteJudgeAccounts(validJudges)
+                            .addOnSuccessListener(results -> {
+                                loading.dismiss();
+                                adapter.clearSelection();
+                                loadPanelsAndJudges();
+                                showDeleteOutcomeDialog("Batch Deletion Complete",
+                                        validJudges.size() + " judge account(s) successfully processed.\n" +
+                                        "Profiles and panel assignments have been deleted / unassigned.\n\n" +
+                                        "Note: To permanently remove login credentials from Firebase Authentication without a deployed Cloud Function, delete the users in Firebase Console (Authentication > Users).");
+                            })
+                            .addOnFailureListener(e -> {
+                                loading.dismiss();
+                                new AlertDialog.Builder(this)
+                                        .setTitle("Batch Deletion Error")
+                                        .setMessage("Failed during batch deletion: " + e.getMessage())
+                                        .setPositiveButton("OK", (d, w) -> d.dismiss())
+                                        .show();
+                            });
+                })
+                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                .show();
+    }
+
+    private void showDeleteOutcomeDialog(String title, String message) {
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(message)
+                .setPositiveButton("OK", (d, w) -> d.dismiss())
+                .show();
     }
 
     private void handleBatchAssignToPanel() {

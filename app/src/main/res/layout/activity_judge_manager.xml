@@ -76,6 +76,20 @@
                 android:text="Auto Assign"
                 android:textSize="11sp" />
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnDeleteJudges"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="Delete Account"
+                android:textColor="@color/danger"
+                app:backgroundTint="@color/danger_light"
+                app:icon="@android:drawable/ic_menu_delete"
+                app:iconTint="@color/danger"
+                android:textSize="11sp"
+                android:visibility="gone" />
+
         </LinearLayout>
 
         <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
