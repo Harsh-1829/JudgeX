@@ -161,8 +161,15 @@ public class TeamLeaderDashboardActivity extends AppCompatActivity {
         tvTeamName.setText(team.getTeamName() != null ? team.getTeamName() : "Team");
         tvProjectTitle.setText(team.getProjectTitle() != null ? team.getProjectTitle() : "Project Title");
         tvCategory.setText(team.getCategory() != null ? team.getCategory() : "General");
-        tvMemberCount.setText((team.getMemberCount() > 0 ? team.getMemberCount() : 1) + " members");
-        tvRegistrationBadge.setText("✓ Registered");
+        if (team.isUnregistered()) {
+            tvRegistrationBadge.setText("⚠️ Unregistered");
+            tvRegistrationBadge.setBackgroundResource(R.drawable.bg_badge_locked);
+            tvRegistrationBadge.setTextColor(getResources().getColor(R.color.danger));
+        } else {
+            tvRegistrationBadge.setText("✓ Registered");
+            tvRegistrationBadge.setBackgroundResource(R.drawable.bg_badge_success);
+            tvRegistrationBadge.setTextColor(getResources().getColor(R.color.success));
+        }
 
         renderQRCode();
 

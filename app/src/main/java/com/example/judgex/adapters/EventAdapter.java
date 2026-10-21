@@ -23,6 +23,7 @@ public class EventAdapter extends RecyclerView.Adapter<EventAdapter.EventViewHol
         void onEventSelected(Event event);
         void onEventItemClick(Event event);
         void onEventStatusClick(Event event);
+        void onEventArchiveClick(Event event);
         void onEventDeleteClick(Event event);
     }
 
@@ -94,6 +95,16 @@ public class EventAdapter extends RecyclerView.Adapter<EventAdapter.EventViewHol
             holder.tvEventScheduleVenue.setVisibility(View.GONE);
         }
 
+        if (Event.STATUS_ARCHIVED.equalsIgnoreCase(event.getStatus())) {
+            holder.btnArchiveEvent.setText("Unarchive");
+        } else {
+            holder.btnArchiveEvent.setText("Archive");
+        }
+
+        holder.btnArchiveEvent.setOnClickListener(v -> {
+            if (listener != null) listener.onEventArchiveClick(event);
+        });
+
         holder.btnSelectEvent.setOnClickListener(v -> {
             if (listener != null) listener.onEventSelected(event);
         });
@@ -118,7 +129,7 @@ public class EventAdapter extends RecyclerView.Adapter<EventAdapter.EventViewHol
 
     static class EventViewHolder extends RecyclerView.ViewHolder {
         TextView tvEventName, tvEventDescription, tvEventStatus, tvEventLockedBadge, tvEventScheduleVenue;
-        MaterialButton btnSelectEvent, btnStatusAction, btnDeleteEvent;
+        MaterialButton btnSelectEvent, btnStatusAction, btnArchiveEvent, btnDeleteEvent;
 
         public EventViewHolder(@NonNull View itemView) {
             super(itemView);
@@ -129,6 +140,7 @@ public class EventAdapter extends RecyclerView.Adapter<EventAdapter.EventViewHol
             tvEventScheduleVenue = itemView.findViewById(R.id.tvEventScheduleVenue);
             btnSelectEvent = itemView.findViewById(R.id.btnSelectEvent);
             btnStatusAction = itemView.findViewById(R.id.btnStatusAction);
+            btnArchiveEvent = itemView.findViewById(R.id.btnArchiveEvent);
             btnDeleteEvent = itemView.findViewById(R.id.btnDeleteEvent);
         }
     }

@@ -56,7 +56,11 @@ public class TeamAdapter extends RecyclerView.Adapter<TeamAdapter.TeamViewHolder
         int members = team.getMemberCount() > 0 ? team.getMemberCount() : 1;
         holder.tvLeader.setText("👤 " + leader + " (" + members + " members)");
 
-        if (evaluatedTeamIds != null && evaluatedTeamIds.contains(team.getId())) {
+        if (team.isUnregistered()) {
+            holder.tvEvaluationStatus.setText("UNREGISTERED");
+            holder.tvEvaluationStatus.setBackgroundResource(R.drawable.bg_badge_locked);
+            holder.tvEvaluationStatus.setTextColor(holder.itemView.getContext().getResources().getColor(R.color.danger));
+        } else if (evaluatedTeamIds != null && evaluatedTeamIds.contains(team.getId())) {
             holder.tvEvaluationStatus.setText("EVALUATED");
             holder.tvEvaluationStatus.setBackgroundResource(R.drawable.bg_badge_success);
             holder.tvEvaluationStatus.setTextColor(holder.itemView.getContext().getResources().getColor(R.color.success));

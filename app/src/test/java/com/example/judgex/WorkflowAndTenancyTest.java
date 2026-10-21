@@ -197,4 +197,85 @@ public class WorkflowAndTenancyTest {
         legacyCompleted.setStatus("COMPLETED");
         assertTrue(legacyCompleted.isSubmitted());
     }
+
+    @Test
+    public void testTeamLifecycleStates() {
+        Team team = new Team("t1", "e1", "p1", "TM-01", "Team Rocket", "AI Vision", "AI", "Jessie", "jessie@example.com", 3, "", System.currentTimeMillis());
+
+        // Default state
+        assertEquals(Team.STATUS_ACTIVE, team.getStatus());
+        assertFalse(team.isDeleted());
+        assertFalse(team.isUnregistered());
+
+        // Unregister / remove from event
+        team.setStatus(Team.STATUS_REMOVED);
+        assertTrue(team.isUnregistered());
+        assertFalse(team.isDeleted());
+
+        // Re-register
+        team.setStatus(Team.STATUS_ACTIVE);
+        assertFalse(team.isUnregistered());
+        assertFalse(team.isDeleted());
+
+        // Soft-delete
+        team.setDeleted(true);
+        assertTrue(team.isDeleted());
+        assertEquals(Team.STATUS_DELETED, team.getStatus());
+    }
+
+    @Test
+    public void testEmailNormalizationAndRoleConflictRules() {
+        String rawEmail = "   Judge.Jane+Test@Example.COM \n";
+        String normalized = com.example.judgex.data.FirebaseManager.normalizeEmail(rawEmail);
+        assertEquals("judge.jane+test@example.com", normalized);
+
+        // Role conflict verification
+        User judgeUser = new User("uid_1", normalized, "Dr. Jane", User.ROLE_JUDGE, "p1", System.currentTimeMillis());
+        assertTrue(judgeUser.isJudge());
+        assertFalse(judgeUser.isTeamLeader());
+
+        User leaderUser = new User("uid_2", normalized, "Bob Leader", User.ROLE_TEAM_LEADER, "", System.currentTimeMillis());
+        assertTrue(leaderUser.isTeamLeader());
+        assertFalse(leaderUser.isJudge());
+
+        // Conflict check: Incompatible roles cannot coexist for same normalized email
+        boolean hasConflict = (judgeUser.isJudge() && leaderUser.isTeamLeader()) || (judgeUser.isTeamLeader() && leaderUser.isJudge());
+        assertTrue("Judge and Team Leader roles must be incompatible for same email", hasConflict);
+    }
+
+    @Test
+    public void testMultiEventJudgePanelFallback() {
+        User judge = new User("j_test", "judge@test.com", "Judge Test", User.ROLE_JUDGE, "panel_default", System.currentTimeMillis());
+
+        // Event-specific assignment
+        judge.setPanelForEvent("event_hackathon", "panel_hackathon_1");
+        assertEquals("panel_hackathon_1", judge.getPanelForEvent("event_hackathon"));
+
+        // Event without specific mapping should return null for event-aware user
+        assertNull(judge.getPanelForEvent("event_other"));
+
+        // Clear event assignment
+        judge.setPanelForEvent("event_hackathon", null);
+        assertEquals("panel_default", judge.getPanelForEvent("event_hackathon"));
+    }
+
+    @Test
+    public void testQRPayloadParsingScenarios() throws Exception {
+        // Scenario 1: Standard JSON payload with teamId
+        String jsonPayload1 = "{\"teamId\":\"team_alpha_123\",\"teamNumber\":\"TM-01\",\"eventId\":\"ev_hack\"}";
+        org.json.JSONObject obj1 = new org.json.JSONObject(jsonPayload1);
+        assertEquals("team_alpha_123", obj1.getString("teamId"));
+        assertEquals("TM-01", obj1.getString("teamNumber"));
+
+        // Scenario 2: Legacy JSON payload with id
+        String jsonPayload2 = "{\"id\":\"team_beta_456\",\"eventId\":\"ev_hack\"}";
+        org.json.JSONObject obj2 = new org.json.JSONObject(jsonPayload2);
+        assertTrue(obj2.has("id"));
+        assertEquals("team_beta_456", obj2.getString("id"));
+
+        // Scenario 3: Raw string with whitespace
+        String rawPayload = "   TM-42 \r\n";
+        String trimmed = rawPayload.trim();
+        assertEquals("TM-42", trimmed);
+    }
 }

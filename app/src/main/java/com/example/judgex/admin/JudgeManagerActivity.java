@@ -249,22 +249,141 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
     private void registerJudge(String name, String email, String password, String panelId) {
         Dialog loadingDialog = UIUtils.showLoadingDialog(this, "Registering judge account...");
 
-        firebaseManager.createJudgeAccount(this, email, password, name, panelId)
+        firebaseManager.createJudgeAccount(this, email, password, name, panelId, eventId)
                 .addOnSuccessListener(uid -> {
                     loadingDialog.dismiss();
-                    UIUtils.showToast(this, "Judge account created for: " + name);
+                    UIUtils.showToast(this, "Judge account ready: " + name);
                     loadPanelsAndJudges();
                 })
                 .addOnFailureListener(e -> {
                     loadingDialog.dismiss();
-                    UIUtils.showToast(this, "Failed to register judge: " + e.getMessage());
+                    new AlertDialog.Builder(this)
+                            .setTitle("Registration Notice")
+                            .setMessage(e.getMessage() != null ? e.getMessage() : "Failed to register judge.")
+                            .setPositiveButton("OK", (d, w) -> d.dismiss())
+                            .show();
                 });
     }
 
     @Override
     public void onJudgeClick(User judge) {
-        // Show dialog to reassign panel
-        showReassignDialog(judge);
+        String statusLabel = judge.isActive() ? "Deactivate Judge Account" : "Reactivate Judge Account";
+        String[] options = {
+                "Assign / Reassign Panel",
+                "Remove from This Event",
+                statusLabel
+        };
+
+        new AlertDialog.Builder(this)
+                .setTitle((judge.getName() != null ? judge.getName() : "Judge") + " (" + judge.getEmail() + ")")
+                .setItems(options, (dialog, which) -> {
+                    switch (which) {
+                        case 0:
+                            showReassignDialog(judge);
+                            break;
+                        case 1:
+                            handleRemoveJudgeFromEvent(judge);
+                            break;
+                        case 2:
+                            handleToggleJudgeActiveStatus(judge);
+                            break;
+                    }
+                })
+                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                .show();
+    }
+
+    private void handleRemoveJudgeFromEvent(User judge) {
+        new AlertDialog.Builder(this)
+                .setTitle("Remove from Event: " + judge.getName())
+                .setMessage("This will remove this judge's panel assignment for this competition event.\n\n" +
+                        "• The judge's account and assignments in other events will be preserved.\n" +
+                        "• Any historical evaluations already submitted will remain intact.\n" +
+                        "• The judge will no longer be able to submit new evaluations for this event.\n\n" +
+                        "Proceed with removal?")
+                .setPositiveButton("Remove from Event", (dialog, which) -> {
+                    Dialog loading = UIUtils.showLoadingDialog(this, "Removing assignment...");
+                    String currentPanelId = judge.getPanelForEvent(eventId);
+
+                    judge.setPanelForEvent(eventId, null);
+                    if (eventId != null && eventId.equals(judge.getAssignedPanelId())) {
+                        judge.setAssignedPanelId("");
+                    }
+
+                    firebaseManager.saveUserProfile(judge)
+                            .addOnSuccessListener(aVoid -> {
+                                if (currentPanelId != null && !currentPanelId.isEmpty()) {
+                                    Map<String, Object> removeData = new HashMap<>();
+                                    removeData.put("judgeIds", com.google.firebase.firestore.FieldValue.arrayRemove(judge.getUid()));
+                                    firebaseManager.getPanelsCollection().document(currentPanelId)
+                                            .set(removeData, com.google.firebase.firestore.SetOptions.merge())
+                                            .addOnCompleteListener(t -> {
+                                                loading.dismiss();
+                                                UIUtils.showToast(this, "Judge assignment removed from event.");
+                                                loadPanelsAndJudges();
+                                            });
+                                } else {
+                                    loading.dismiss();
+                                    UIUtils.showToast(this, "Judge assignment removed from event.");
+                                    loadPanelsAndJudges();
+                                }
+                            })
+                            .addOnFailureListener(e -> {
+                                loading.dismiss();
+                                UIUtils.showToast(this, "Failed to remove assignment: " + e.getMessage());
+                            });
+                })
+                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                .show();
+    }
+
+    private void handleToggleJudgeActiveStatus(User judge) {
+        boolean currentlyActive = judge.isActive();
+        if (currentlyActive) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Deactivate Judge Account: " + judge.getName())
+                    .setMessage("Deactivating this judge will prevent them from signing in to JudgeX.\n\n" +
+                            "• Historical evaluations will remain safely intact for competition rankings.\n" +
+                            "• The judge will not be able to evaluate teams in any event.\n" +
+                            "• Note: Permanent deletion of Firebase Authentication login credentials requires trusted backend/Cloud Functions administration.\n\n" +
+                            "Proceed to deactivate this account?")
+                    .setPositiveButton("Deactivate Account", (dialog, which) -> {
+                        Dialog loading = UIUtils.showLoadingDialog(this, "Deactivating judge account...");
+                        judge.setActive(false);
+                        firebaseManager.saveUserProfile(judge)
+                                .addOnSuccessListener(aVoid -> {
+                                    loading.dismiss();
+                                    UIUtils.showToast(this, "Judge account deactivated.");
+                                    loadPanelsAndJudges();
+                                })
+                                .addOnFailureListener(e -> {
+                                    loading.dismiss();
+                                    UIUtils.showToast(this, "Failed to deactivate account: " + e.getMessage());
+                                });
+                    })
+                    .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                    .show();
+        } else {
+            new AlertDialog.Builder(this)
+                    .setTitle("Reactivate Judge Account: " + judge.getName())
+                    .setMessage("Reactivating this judge will allow them to sign in to JudgeX again.\n\nProceed to reactivate?")
+                    .setPositiveButton("Reactivate Account", (dialog, which) -> {
+                        Dialog loading = UIUtils.showLoadingDialog(this, "Reactivating judge account...");
+                        judge.setActive(true);
+                        firebaseManager.saveUserProfile(judge)
+                                .addOnSuccessListener(aVoid -> {
+                                    loading.dismiss();
+                                    UIUtils.showToast(this, "Judge account reactivated.");
+                                    loadPanelsAndJudges();
+                                })
+                                .addOnFailureListener(e -> {
+                                    loading.dismiss();
+                                    UIUtils.showToast(this, "Failed to reactivate account: " + e.getMessage());
+                                });
+                    })
+                    .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                    .show();
+        }
     }
 
     private void handleBatchAssignToPanel() {

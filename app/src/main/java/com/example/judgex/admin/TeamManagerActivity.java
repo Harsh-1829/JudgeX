@@ -144,7 +144,7 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
                     teamList.clear();
                     for (DocumentSnapshot doc : querySnapshot.getDocuments()) {
                         Team team = doc.toObject(Team.class);
-                        if (team != null) {
+                        if (team != null && !team.isDeleted()) {
                             team.setId(doc.getId());
                             teamList.add(team);
                         }
@@ -294,7 +294,11 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
                                     })
                                     .addOnFailureListener(e -> {
                                         loadingDialog.dismiss();
-                                        UIUtils.showToast(this, "Team updated, but leader login failed: " + e.getMessage());
+                                        new AlertDialog.Builder(this)
+                                                .setTitle("Team Leader Account Notice")
+                                                .setMessage("Team updated, but leader login could not be provisioned:\n\n" + e.getMessage())
+                                                .setPositiveButton("OK", (d, w) -> d.dismiss())
+                                                .show();
                                         loadPanelsAndTeams();
                                     });
                         } else {
@@ -324,7 +328,11 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
                                     })
                                     .addOnFailureListener(e -> {
                                         loadingDialog.dismiss();
-                                        UIUtils.showToast(this, "Team registered, but leader login failed: " + e.getMessage());
+                                        new AlertDialog.Builder(this)
+                                                .setTitle("Team Leader Account Notice")
+                                                .setMessage("Team registered, but leader login could not be provisioned:\n\n" + e.getMessage())
+                                                .setPositiveButton("OK", (d, w) -> d.dismiss())
+                                                .show();
                                         loadPanelsAndTeams();
                                     });
                         } else {
@@ -418,7 +426,18 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
 
     @Override
     public void onTeamClick(Team team) {
-        String[] options = {"Edit Team Details", "Reassign Panel", "View / Share QR Pass"};
+        String unregisterLabel = team.isUnregistered() 
+                ? "Re-register Team in Event" 
+                : "Remove from Event / Unregister Team";
+
+        String[] options = {
+                "Edit Team Details",
+                "Reassign Panel",
+                "View / Share QR Pass",
+                unregisterLabel,
+                "Delete Team Record"
+        };
+
         new AlertDialog.Builder(this)
                 .setTitle(team.getTeamNumber() + " - " + team.getTeamName())
                 .setItems(options, (dialog, which) -> {
@@ -432,10 +451,123 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
                         case 2:
                             onQRClick(team);
                             break;
+                        case 3:
+                            handleRemoveTeamFromEvent(team);
+                            break;
+                        case 4:
+                            handleDeleteTeamRecord(team);
+                            break;
                     }
                 })
                 .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
                 .show();
+    }
+
+    private void handleRemoveTeamFromEvent(Team team) {
+        boolean isUnregistered = team.isUnregistered();
+        if (!isUnregistered) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Unregister Team: " + team.getTeamNumber())
+                    .setMessage("Unregistering '" + team.getTeamName() + "' will remove this team from active judging.\n\n" +
+                            "• Judges will NOT be able to scan or evaluate this team in this event.\n" +
+                            "• Any historical evaluations already submitted will remain intact.\n\n" +
+                            "Proceed to unregister team?")
+                    .setPositiveButton("Unregister Team", (dialog, which) -> {
+                        Dialog loading = UIUtils.showLoadingDialog(this, "Unregistering team...");
+                        team.setStatus(Team.STATUS_REMOVED);
+                        firebaseManager.updateTeam(team)
+                                .addOnSuccessListener(aVoid -> {
+                                    loading.dismiss();
+                                    UIUtils.showToast(this, "Team unregistered from event.");
+                                    loadPanelsAndTeams();
+                                })
+                                .addOnFailureListener(e -> {
+                                    loading.dismiss();
+                                    UIUtils.showToast(this, "Failed to unregister team: " + e.getMessage());
+                                });
+                    })
+                    .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                    .show();
+        } else {
+            new AlertDialog.Builder(this)
+                    .setTitle("Re-register Team: " + team.getTeamNumber())
+                    .setMessage("Re-registering '" + team.getTeamName() + "' will allow judges to scan and evaluate this team again.\n\nProceed to re-register?")
+                    .setPositiveButton("Re-register", (dialog, which) -> {
+                        Dialog loading = UIUtils.showLoadingDialog(this, "Re-registering team...");
+                        team.setStatus(Team.STATUS_ACTIVE);
+                        firebaseManager.updateTeam(team)
+                                .addOnSuccessListener(aVoid -> {
+                                    loading.dismiss();
+                                    UIUtils.showToast(this, "Team re-registered as active.");
+                                    loadPanelsAndTeams();
+                                })
+                                .addOnFailureListener(e -> {
+                                    loading.dismiss();
+                                    UIUtils.showToast(this, "Failed to re-register team: " + e.getMessage());
+                                });
+                    })
+                    .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                    .show();
+        }
+    }
+
+    private void handleDeleteTeamRecord(Team team) {
+        Dialog checkingDialog = UIUtils.showLoadingDialog(this, "Checking team evaluations...");
+
+        firebaseManager.getEvaluationsCollection().whereEqualTo("teamId", team.getId()).get()
+                .addOnSuccessListener(evalSnapshots -> {
+                    checkingDialog.dismiss();
+                    int evalCount = evalSnapshots != null ? evalSnapshots.size() : 0;
+
+                    AlertDialog.Builder builder = new AlertDialog.Builder(this)
+                            .setTitle("Delete Team: " + team.getTeamNumber() + " (" + team.getTeamName() + ")");
+
+                    if (evalCount > 0) {
+                        builder.setMessage("⚠️ Warning: Team '" + team.getTeamName() + "' has " + evalCount + 
+                                " existing evaluation record(s).\n\n" +
+                                "To maintain competition history, ranking integrity, and audit referential integrity without destructive data loss, this team will be marked as DELETED and hidden from active participants.\n\n" +
+                                "Proceed with soft-deletion?")
+                                .setPositiveButton("Soft-Delete Record", (dialog, which) -> {
+                                    Dialog loading = UIUtils.showLoadingDialog(this, "Soft-deleting team...");
+                                    team.setDeleted(true);
+                                    team.setStatus(Team.STATUS_DELETED);
+                                    firebaseManager.updateTeam(team)
+                                            .addOnSuccessListener(aVoid -> {
+                                                loading.dismiss();
+                                                UIUtils.showToast(this, "Team soft-deleted.");
+                                                loadPanelsAndTeams();
+                                            })
+                                            .addOnFailureListener(e -> {
+                                                loading.dismiss();
+                                                UIUtils.showToast(this, "Failed to delete team: " + e.getMessage());
+                                            });
+                                });
+                    } else {
+                        builder.setMessage("This team has no submitted evaluations.\n\n" +
+                                "It will be permanently removed from this competition event.\n\n" +
+                                "Are you sure you want to permanently delete '" + team.getTeamName() + "'?")
+                                .setPositiveButton("Permanently Delete", (dialog, which) -> {
+                                    Dialog loading = UIUtils.showLoadingDialog(this, "Deleting team permanently...");
+                                    firebaseManager.deleteTeam(team.getId())
+                                            .addOnSuccessListener(aVoid -> {
+                                                loading.dismiss();
+                                                UIUtils.showToast(this, "Team permanently deleted.");
+                                                loadPanelsAndTeams();
+                                            })
+                                            .addOnFailureListener(e -> {
+                                                loading.dismiss();
+                                                UIUtils.showToast(this, "Failed to delete team: " + e.getMessage());
+                                            });
+                                });
+                    }
+
+                    builder.setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                            .show();
+                })
+                .addOnFailureListener(e -> {
+                    checkingDialog.dismiss();
+                    UIUtils.showToast(this, "Failed to check team evaluations: " + e.getMessage());
+                });
     }
 
     private void showReassignTeamPanelDialog(Team team) {

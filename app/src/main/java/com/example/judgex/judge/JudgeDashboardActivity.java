@@ -95,12 +95,29 @@ public class JudgeDashboardActivity extends AppCompatActivity {
                 UIUtils.showToast(this, "Evaluations are currently locked by the Admin.");
                 return;
             }
-            if (currentJudge == null || currentJudge.getAssignedPanelId() == null || currentJudge.getAssignedPanelId().isEmpty()) {
+
+            String effectivePanelId = null;
+            if (currentJudge != null) {
+                if (currentEvent != null) {
+                    effectivePanelId = currentJudge.getPanelForEvent(currentEvent.getId());
+                }
+                if (effectivePanelId == null || effectivePanelId.isEmpty()) {
+                    effectivePanelId = currentJudge.getAssignedPanelId();
+                }
+                if ((effectivePanelId == null || effectivePanelId.isEmpty()) && !currentJudge.getEventPanelAssignments().isEmpty()) {
+                    effectivePanelId = currentJudge.getEventPanelAssignments().values().iterator().next();
+                }
+            }
+
+            if (currentJudge == null || ((effectivePanelId == null || effectivePanelId.isEmpty()) && !currentJudge.isAdmin())) {
                 UIUtils.showToast(this, "You have not been assigned to an evaluation panel yet. Please contact the Admin.");
                 return;
             }
+
             Intent intent = new Intent(JudgeDashboardActivity.this, QRScannerActivity.class);
-            intent.putExtra(Constants.EXTRA_PANEL_ID, currentJudge.getAssignedPanelId());
+            if (effectivePanelId != null) {
+                intent.putExtra(Constants.EXTRA_PANEL_ID, effectivePanelId);
+            }
             if (currentEvent != null) {
                 intent.putExtra(Constants.EXTRA_EVENT_ID, currentEvent.getId());
             }
@@ -132,6 +149,10 @@ public class JudgeDashboardActivity extends AppCompatActivity {
                             tvJudgeEmail.setText(currentJudge.getEmail() != null ? currentJudge.getEmail() : "");
 
                             String panelId = currentJudge.getAssignedPanelId();
+                            if ((panelId == null || panelId.isEmpty()) && !currentJudge.getEventPanelAssignments().isEmpty()) {
+                                panelId = currentJudge.getEventPanelAssignments().values().iterator().next();
+                            }
+
                             if (panelId != null && !panelId.isEmpty()) {
                                 loadPanelDetails(panelId);
                             } else {

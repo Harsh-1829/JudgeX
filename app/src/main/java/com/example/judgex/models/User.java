@@ -9,6 +9,7 @@ public class User implements Serializable {
 
     public static final String STATUS_ACTIVE = "ACTIVE";
     public static final String STATUS_INACTIVE = "INACTIVE";
+    public static final String STATUS_DEACTIVATED = "DEACTIVATED";
 
     private String uid;
     private String email;
@@ -144,12 +145,12 @@ public class User implements Serializable {
     }
 
     public boolean isActive() {
-        return active && !STATUS_INACTIVE.equalsIgnoreCase(this.status);
+        return active && !STATUS_INACTIVE.equalsIgnoreCase(this.status) && !STATUS_DEACTIVATED.equalsIgnoreCase(this.status);
     }
 
     public void setActive(boolean active) {
         this.active = active;
-        this.status = active ? STATUS_ACTIVE : STATUS_INACTIVE;
+        this.status = active ? STATUS_ACTIVE : STATUS_DEACTIVATED;
     }
 
     public long getCreatedAt() {

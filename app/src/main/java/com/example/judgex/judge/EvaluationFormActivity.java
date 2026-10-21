@@ -60,6 +60,32 @@ public class EvaluationFormActivity extends AppCompatActivity implements Evaluat
         currentTeam = (Team) getIntent().getSerializableExtra(Constants.EXTRA_TEAM);
         currentEvent = (Event) getIntent().getSerializableExtra(Constants.EXTRA_EVENT);
 
+        String extraTeamId = getIntent().getStringExtra(Constants.EXTRA_TEAM_ID);
+        if (currentTeam == null && extraTeamId != null && !extraTeamId.isEmpty()) {
+            Dialog loading = UIUtils.showLoadingDialog(this, "Loading team details...");
+            firebaseManager.getTeam(extraTeamId)
+                    .addOnSuccessListener(doc -> {
+                        loading.dismiss();
+                        if (doc.exists()) {
+                            currentTeam = doc.toObject(Team.class);
+                            if (currentTeam != null) {
+                                currentTeam.setId(doc.getId());
+                                initViews();
+                                loadEventAndSetupUI();
+                                return;
+                            }
+                        }
+                        UIUtils.showToast(this, "Could not load team with ID: " + extraTeamId);
+                        finish();
+                    })
+                    .addOnFailureListener(e -> {
+                        loading.dismiss();
+                        UIUtils.showToast(this, "Network error loading team: " + e.getMessage());
+                        finish();
+                    });
+            return;
+        }
+
         if (currentTeam == null) {
             UIUtils.showToast(this, "Team information missing");
             finish();

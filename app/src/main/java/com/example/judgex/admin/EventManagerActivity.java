@@ -367,27 +367,120 @@ public class EventManagerActivity extends AppCompatActivity implements EventAdap
     }
 
     @Override
+    public void onEventArchiveClick(Event event) {
+        if (Event.STATUS_ARCHIVED.equalsIgnoreCase(event.getStatus())) {
+            String[] options = {"Restore to Active", "Restore to Completed"};
+            new AlertDialog.Builder(this)
+                    .setTitle("Unarchive Event: " + event.getName())
+                    .setItems(options, (dialog, which) -> {
+                        String restoredStatus = which == 0 ? Event.STATUS_ACTIVE : Event.STATUS_COMPLETED;
+                        Dialog loading = UIUtils.showLoadingDialog(this, "Restoring event...");
+                        event.setStatus(restoredStatus);
+                        event.setDeleted(false);
+                        firebaseManager.updateEvent(event)
+                                .addOnSuccessListener(aVoid -> {
+                                    loading.dismiss();
+                                    UIUtils.showToast(this, "Event restored as " + restoredStatus);
+                                    loadEvents();
+                                })
+                                .addOnFailureListener(e -> {
+                                    loading.dismiss();
+                                    UIUtils.showToast(this, "Failed to restore event: " + e.getMessage());
+                                });
+                    })
+                    .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                    .show();
+        } else {
+            new AlertDialog.Builder(this)
+                    .setTitle("Archive Event: " + event.getName())
+                    .setMessage("Archiving removes this competition from active schedules while preserving all associated teams, criteria, judges, evaluations, and rankings.\n\nIt will remain accessible under the Archived filter.\n\nAre you sure you want to archive this event?")
+                    .setPositiveButton("Archive Event", (dialog, which) -> {
+                        Dialog loading = UIUtils.showLoadingDialog(this, "Archiving event...");
+                        event.setStatus(Event.STATUS_ARCHIVED);
+                        firebaseManager.updateEvent(event)
+                                .addOnSuccessListener(aVoid -> {
+                                    loading.dismiss();
+                                    UIUtils.showToast(this, "Event archived successfully.");
+                                    loadEvents();
+                                })
+                                .addOnFailureListener(e -> {
+                                    loading.dismiss();
+                                    UIUtils.showToast(this, "Failed to archive event: " + e.getMessage());
+                                });
+                    })
+                    .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                    .show();
+        }
+    }
+
+    @Override
     public void onEventDeleteClick(Event event) {
-        new AlertDialog.Builder(this)
-                .setTitle("Delete Event: " + event.getName())
-                .setMessage("⚠️ Warning: Deleting this competition will remove it from the active event schedule.\n\nTo preserve historical competition scores, teams, and audit records, this event will be safely archived.\n\nAre you sure you want to proceed?")
-                .setPositiveButton("Archive & Remove", (dialog, which) -> {
-                    Dialog loading = UIUtils.showLoadingDialog(this, "Archiving event safely...");
-                    event.setDeleted(true);
-                    event.setStatus(Event.STATUS_ARCHIVED);
-                    firebaseManager.updateEvent(event)
-                            .addOnSuccessListener(aVoid -> {
-                                loading.dismiss();
-                                UIUtils.showToast(this, "Event archived and removed from active list.");
-                                loadEvents();
+        Dialog checkingDialog = UIUtils.showLoadingDialog(this, "Checking event records...");
+
+        firebaseManager.getTeamsCollection().whereEqualTo("eventId", event.getId()).get()
+                .addOnSuccessListener(teamSnapshots -> {
+                    int teamCount = teamSnapshots != null ? teamSnapshots.size() : 0;
+
+                    firebaseManager.getEvaluationsCollection().whereEqualTo("eventId", event.getId()).get()
+                            .addOnSuccessListener(evalSnapshots -> {
+                                checkingDialog.dismiss();
+                                int evalCount = evalSnapshots != null ? evalSnapshots.size() : 0;
+                                boolean hasHistory = teamCount > 0 || evalCount > 0;
+
+                                AlertDialog.Builder builder = new AlertDialog.Builder(this)
+                                        .setTitle("Delete Event: " + event.getName());
+
+                                if (hasHistory) {
+                                    builder.setMessage("⚠️ Warning: '" + event.getName() + "' has " + teamCount + 
+                                            " registered team(s) and " + evalCount + " evaluation record(s).\n\n" +
+                                            "To preserve historical competition scores, rankings, and audit integrity without destructive data loss, this event will be safely marked as DELETED and hidden from ordinary workflows.\n\n" +
+                                            "Are you sure you want to proceed?")
+                                            .setPositiveButton("Soft-Delete Record", (dialog, which) -> {
+                                                Dialog loading = UIUtils.showLoadingDialog(this, "Soft-deleting event...");
+                                                event.setDeleted(true);
+                                                event.setStatus(Event.STATUS_ARCHIVED);
+                                                firebaseManager.updateEvent(event)
+                                                        .addOnSuccessListener(aVoid -> {
+                                                            loading.dismiss();
+                                                            UIUtils.showToast(this, "Event soft-deleted and archived.");
+                                                            loadEvents();
+                                                        })
+                                                        .addOnFailureListener(e -> {
+                                                            loading.dismiss();
+                                                            UIUtils.showToast(this, "Failed to delete event: " + e.getMessage());
+                                                        });
+                                            });
+                                } else {
+                                    builder.setMessage("This event has no registered teams, criteria, or evaluations.\n\n" +
+                                            "It will be permanently removed from the competition database.\n\n" +
+                                            "Are you sure you want to permanently delete '" + event.getName() + "'?")
+                                            .setPositiveButton("Permanently Delete", (dialog, which) -> {
+                                                Dialog loading = UIUtils.showLoadingDialog(this, "Deleting event permanently...");
+                                                firebaseManager.deleteEvent(event.getId())
+                                                        .addOnSuccessListener(aVoid -> {
+                                                            loading.dismiss();
+                                                            UIUtils.showToast(this, "Event permanently deleted.");
+                                                            loadEvents();
+                                                        })
+                                                        .addOnFailureListener(e -> {
+                                                            loading.dismiss();
+                                                            UIUtils.showToast(this, "Failed to delete event: " + e.getMessage());
+                                                        });
+                                            });
+                                }
+
+                                builder.setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                                        .show();
                             })
                             .addOnFailureListener(e -> {
-                                loading.dismiss();
-                                UIUtils.showToast(this, "Failed to delete event: " + e.getMessage());
+                                checkingDialog.dismiss();
+                                UIUtils.showToast(this, "Failed to check evaluation records: " + e.getMessage());
                             });
                 })
-                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
-                .show();
+                .addOnFailureListener(e -> {
+                    checkingDialog.dismiss();
+                    UIUtils.showToast(this, "Failed to check team records: " + e.getMessage());
+                });
     }
 
     @Override

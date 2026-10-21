@@ -3,6 +3,10 @@ package com.example.judgex.models;
 import java.io.Serializable;
 
 public class Team implements Serializable {
+    public static final String STATUS_ACTIVE = "ACTIVE";
+    public static final String STATUS_REMOVED = "REMOVED";
+    public static final String STATUS_DELETED = "DELETED";
+
     private String id;
     private String eventId;
     private String panelId;
@@ -15,10 +19,13 @@ public class Team implements Serializable {
     private String leaderUid;
     private int memberCount;
     private String qrCodeData;
+    private String status;
+    private boolean deleted;
     private long createdAt;
 
     public Team() {
-        // Required for Firestore
+        this.status = STATUS_ACTIVE;
+        this.deleted = false;
     }
 
     public Team(String id, String eventId, String panelId, String teamNumber, String teamName, 
@@ -150,5 +157,31 @@ public class Team implements Serializable {
 
     public void setCreatedAt(long createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public String getStatus() {
+        return status != null ? status : STATUS_ACTIVE;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+        if (STATUS_DELETED.equalsIgnoreCase(status)) {
+            this.deleted = true;
+        }
+    }
+
+    public boolean isDeleted() {
+        return deleted || STATUS_DELETED.equalsIgnoreCase(status);
+    }
+
+    public void setDeleted(boolean deleted) {
+        this.deleted = deleted;
+        if (deleted) {
+            this.status = STATUS_DELETED;
+        }
+    }
+
+    public boolean isUnregistered() {
+        return STATUS_REMOVED.equalsIgnoreCase(status);
     }
 }

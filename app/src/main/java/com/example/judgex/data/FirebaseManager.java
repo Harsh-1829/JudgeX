@@ -94,20 +94,96 @@ public class FirebaseManager {
         return db.collection(Constants.COLLECTION_USERS).document(user.getUid()).set(user);
     }
 
+    public static String normalizeEmail(String email) {
+        return email != null ? email.trim().toLowerCase(java.util.Locale.US) : "";
+    }
+
     /**
      * Creates a Judge user without signing out the currently logged-in Admin,
-     * using an isolated secondary FirebaseApp instance and non-blocking Task completion.
+     * enforcing email normalization, cross-role uniqueness against Team Leaders,
+     * and reusing existing judge profiles for multi-event assignments.
      */
     public Task<String> createJudgeAccount(Context context, String email, String password, String name, String panelId) {
-        TaskCompletionSource<String> tcs = new TaskCompletionSource<>();
-        String uniqueAppName = "JudgeCreator_" + System.currentTimeMillis() + "_" + (int)(Math.random() * 10000);
+        return createJudgeAccount(context, email, password, name, panelId, null);
+    }
 
+    public Task<String> createJudgeAccount(Context context, String email, String password, String name, String panelId, String eventId) {
+        TaskCompletionSource<String> tcs = new TaskCompletionSource<>();
+        final String normalizedEmail = normalizeEmail(email);
+
+        if (normalizedEmail.isEmpty()) {
+            tcs.setException(new IllegalArgumentException("Email address cannot be empty"));
+            return tcs.getTask();
+        }
+
+        final String cleanPanelId = panelId != null ? panelId.trim() : "";
+        final String cleanEventId = eventId != null ? eventId.trim() : "";
+
+        // Check if a user with this email already exists before calling Firebase Auth
+        db.collection(Constants.COLLECTION_USERS)
+                .whereEqualTo("email", normalizedEmail)
+                .limit(1)
+                .get()
+                .addOnSuccessListener(querySnapshot -> {
+                    if (querySnapshot != null && !querySnapshot.isEmpty()) {
+                        DocumentSnapshot userDoc = querySnapshot.getDocuments().get(0);
+                        User existingUser = userDoc.toObject(User.class);
+                        if (existingUser != null) {
+                            existingUser.setUid(userDoc.getId());
+
+                            // Priority 5: Enforce role conflict rejection
+                            if (existingUser.isTeamLeader()) {
+                                tcs.setException(new IllegalStateException(
+                                        "This email is already registered as a Judge or Team Leader and cannot be assigned this role."));
+                                return;
+                            }
+
+                            if (existingUser.isJudge()) {
+                                // Priority 5 Requirement 9: Preserve legitimate multi-event judge participation
+                                if (!cleanEventId.isEmpty()) {
+                                    existingUser.setPanelForEvent(cleanEventId, cleanPanelId);
+                                }
+                                if (!cleanPanelId.isEmpty()) {
+                                    existingUser.setAssignedPanelId(cleanPanelId);
+                                }
+
+                                db.collection(Constants.COLLECTION_USERS).document(existingUser.getUid())
+                                        .set(existingUser, SetOptions.merge())
+                                        .addOnSuccessListener(aVoid -> {
+                                            if (!cleanPanelId.isEmpty()) {
+                                                Map<String, Object> mergeData = new HashMap<>();
+                                                mergeData.put("judgeIds", FieldValue.arrayUnion(existingUser.getUid()));
+                                                db.collection(Constants.COLLECTION_PANELS).document(cleanPanelId)
+                                                        .set(mergeData, SetOptions.merge())
+                                                        .addOnCompleteListener(task -> tcs.setResult(existingUser.getUid()));
+                                            } else {
+                                                tcs.setResult(existingUser.getUid());
+                                            }
+                                        })
+                                        .addOnFailureListener(tcs::setException);
+                                return;
+                            }
+                        }
+                    }
+
+                    // No existing user with this email: Provision new Firebase Auth account
+                    provisionNewJudgeAuthAccount(context, normalizedEmail, password, name, cleanPanelId, cleanEventId, tcs);
+                })
+                .addOnFailureListener(tcs::setException);
+
+        return tcs.getTask();
+    }
+
+    private void provisionNewJudgeAuthAccount(Context context, String normalizedEmail, String password, 
+                                              String name, String cleanPanelId, String cleanEventId, 
+                                              TaskCompletionSource<String> tcs) {
+        String uniqueAppName = "JudgeCreator_" + System.currentTimeMillis() + "_" + (int)(Math.random() * 10000);
         try {
             FirebaseOptions options = FirebaseApp.getInstance().getOptions();
             FirebaseApp secondaryApp = FirebaseApp.initializeApp(context.getApplicationContext(), options, uniqueAppName);
             FirebaseAuth secondaryAuth = FirebaseAuth.getInstance(secondaryApp);
 
-            secondaryAuth.createUserWithEmailAndPassword(email.trim(), password)
+            secondaryAuth.createUserWithEmailAndPassword(normalizedEmail, password)
                     .addOnSuccessListener(authResult -> {
                         if (authResult.getUser() == null) {
                             cleanUpSecondaryApp(secondaryApp, secondaryAuth);
@@ -116,13 +192,20 @@ public class FirebaseManager {
                         }
 
                         String newUid = authResult.getUser().getUid();
-                        String cleanPanelId = panelId != null ? panelId.trim() : "";
-                        User judgeUser = new User(newUid, email.trim(), name.trim(), User.ROLE_JUDGE, cleanPanelId, System.currentTimeMillis());
+                        User judgeUser = new User(newUid, normalizedEmail, name.trim(), User.ROLE_JUDGE, cleanPanelId, System.currentTimeMillis());
+                        if (!cleanEventId.isEmpty()) {
+                            judgeUser.setPanelForEvent(cleanEventId, cleanPanelId);
+                        }
+
+                        // Attach organization ID from current admin if available
+                        if (currentUserProfile != null && currentUserProfile.getOrganizationId() != null) {
+                            judgeUser.setOrganizationId(currentUserProfile.getOrganizationId());
+                            judgeUser.setOrganizationName(currentUserProfile.getOrganizationName());
+                        }
 
                         // Save judge user profile in Firestore
                         db.collection(Constants.COLLECTION_USERS).document(newUid).set(judgeUser)
                                 .addOnSuccessListener(aVoid -> {
-                                    // If assigned to a panel, update panel judgeIds
                                     if (!cleanPanelId.isEmpty()) {
                                         Map<String, Object> mergeData = new HashMap<>();
                                         mergeData.put("judgeIds", FieldValue.arrayUnion(newUid));
@@ -149,24 +232,61 @@ public class FirebaseManager {
         } catch (Exception e) {
             tcs.setException(e);
         }
-
-        return tcs.getTask();
     }
 
     /**
      * Creates a Team Leader user without signing out the currently logged-in Admin,
-     * using an isolated secondary FirebaseApp instance and non-blocking Task completion.
+     * enforcing email normalization and pre-checking for cross-role collisions with Judges.
      */
     public Task<String> createTeamLeaderAccount(Context context, String email, String password, String name, String teamId) {
         TaskCompletionSource<String> tcs = new TaskCompletionSource<>();
-        String uniqueAppName = "LeaderCreator_" + System.currentTimeMillis() + "_" + (int)(Math.random() * 10000);
+        final String normalizedEmail = normalizeEmail(email);
 
+        if (normalizedEmail.isEmpty()) {
+            tcs.setException(new IllegalArgumentException("Email address cannot be empty"));
+            return tcs.getTask();
+        }
+
+        // Priority 5: Pre-check role conflicts before invoking Firebase Auth
+        db.collection(Constants.COLLECTION_USERS)
+                .whereEqualTo("email", normalizedEmail)
+                .limit(1)
+                .get()
+                .addOnSuccessListener(querySnapshot -> {
+                    if (querySnapshot != null && !querySnapshot.isEmpty()) {
+                        DocumentSnapshot userDoc = querySnapshot.getDocuments().get(0);
+                        User existingUser = userDoc.toObject(User.class);
+                        if (existingUser != null) {
+                            if (existingUser.isJudge()) {
+                                tcs.setException(new IllegalStateException(
+                                        "This email is already registered as a Judge or Team Leader and cannot be assigned this role."));
+                                return;
+                            }
+                            if (existingUser.isTeamLeader()) {
+                                tcs.setException(new IllegalStateException(
+                                        "This email is already registered as a Judge or Team Leader and cannot be assigned this role."));
+                                return;
+                            }
+                        }
+                    }
+
+                    // Safe to proceed with Firebase Auth creation
+                    provisionNewTeamLeaderAuthAccount(context, normalizedEmail, password, name, teamId, tcs);
+                })
+                .addOnFailureListener(tcs::setException);
+
+        return tcs.getTask();
+    }
+
+    private void provisionNewTeamLeaderAuthAccount(Context context, String normalizedEmail, String password, 
+                                                   String name, String teamId, TaskCompletionSource<String> tcs) {
+        String uniqueAppName = "LeaderCreator_" + System.currentTimeMillis() + "_" + (int)(Math.random() * 10000);
         try {
             FirebaseOptions options = FirebaseApp.getInstance().getOptions();
             FirebaseApp secondaryApp = FirebaseApp.initializeApp(context.getApplicationContext(), options, uniqueAppName);
             FirebaseAuth secondaryAuth = FirebaseAuth.getInstance(secondaryApp);
 
-            secondaryAuth.createUserWithEmailAndPassword(email.trim(), password)
+            secondaryAuth.createUserWithEmailAndPassword(normalizedEmail, password)
                     .addOnSuccessListener(authResult -> {
                         if (authResult.getUser() == null) {
                             cleanUpSecondaryApp(secondaryApp, secondaryAuth);
@@ -175,13 +295,17 @@ public class FirebaseManager {
                         }
 
                         String newUid = authResult.getUser().getUid();
-                        User leaderUser = new User(newUid, email.trim(), name.trim(), User.ROLE_TEAM_LEADER, "", System.currentTimeMillis());
+                        User leaderUser = new User(newUid, normalizedEmail, name.trim(), User.ROLE_TEAM_LEADER, "", System.currentTimeMillis());
                         leaderUser.setAssignedTeamId(teamId);
+
+                        if (currentUserProfile != null && currentUserProfile.getOrganizationId() != null) {
+                            leaderUser.setOrganizationId(currentUserProfile.getOrganizationId());
+                            leaderUser.setOrganizationName(currentUserProfile.getOrganizationName());
+                        }
 
                         // Save leader user profile in Firestore
                         db.collection(Constants.COLLECTION_USERS).document(newUid).set(leaderUser)
                                 .addOnSuccessListener(aVoid -> {
-                                    // Update Team record with leaderUid
                                     if (teamId != null && !teamId.isEmpty()) {
                                         db.collection(Constants.COLLECTION_TEAMS).document(teamId)
                                                 .update("leaderUid", newUid)
@@ -206,8 +330,6 @@ public class FirebaseManager {
         } catch (Exception e) {
             tcs.setException(e);
         }
-
-        return tcs.getTask();
     }
 
     private void cleanUpSecondaryApp(FirebaseApp app, FirebaseAuth auth) {
@@ -244,6 +366,10 @@ public class FirebaseManager {
 
     public Task<DocumentSnapshot> getEvent(String eventId) {
         return db.collection(Constants.COLLECTION_EVENTS).document(eventId).get();
+    }
+
+    public Task<Void> deleteEvent(String eventId) {
+        return db.collection(Constants.COLLECTION_EVENTS).document(eventId).delete();
     }
 
     // --- Panel Operations ---
@@ -456,6 +582,10 @@ public class FirebaseManager {
 
     public Task<DocumentSnapshot> getTeam(String teamId) {
         return db.collection(Constants.COLLECTION_TEAMS).document(teamId).get();
+    }
+
+    public Task<Void> deleteTeam(String teamId) {
+        return db.collection(Constants.COLLECTION_TEAMS).document(teamId).delete();
     }
 
     public Task<QuerySnapshot> getTeamForLeader(String leaderUid) {
