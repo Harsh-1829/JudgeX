@@ -11,9 +11,13 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.example.judgex.R;
 import com.example.judgex.models.Panel;
 import com.example.judgex.models.User;
+import com.google.android.material.checkbox.MaterialCheckBox;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class JudgeAdapter extends RecyclerView.Adapter<JudgeAdapter.JudgeViewHolder> {
 
@@ -21,10 +25,16 @@ public class JudgeAdapter extends RecyclerView.Adapter<JudgeAdapter.JudgeViewHol
         void onJudgeClick(User judge);
     }
 
+    public interface OnJudgeSelectionChangedListener {
+        void onSelectionChanged(int selectedCount);
+    }
+
     private final List<User> judgeList;
     private final Map<String, Panel> panelMap; // panelId -> Panel
     private final String eventId;
     private final OnJudgeClickListener listener;
+    private OnJudgeSelectionChangedListener selectionListener;
+    private final Set<String> selectedJudgeUids = new HashSet<>();
 
     public JudgeAdapter(List<User> judgeList, Map<String, Panel> panelMap, String eventId, OnJudgeClickListener listener) {
         this.judgeList = judgeList;
@@ -33,8 +43,50 @@ public class JudgeAdapter extends RecyclerView.Adapter<JudgeAdapter.JudgeViewHol
         this.listener = listener;
     }
 
-    public JudgeAdapter(List<User> judgeList, Map<String, Panel> panelMap, OnJudgeClickListener listener) {
-        this(judgeList, panelMap, null, listener);
+    public void setSelectionListener(OnJudgeSelectionChangedListener selectionListener) {
+        this.selectionListener = selectionListener;
+    }
+
+    public Set<String> getSelectedJudgeUids() {
+        return selectedJudgeUids;
+    }
+
+    public List<User> getSelectedJudges() {
+        List<User> selected = new ArrayList<>();
+        for (User u : judgeList) {
+            if (selectedJudgeUids.contains(u.getUid())) {
+                selected.add(u);
+            }
+        }
+        return selected;
+    }
+
+    public void selectAll() {
+        selectedJudgeUids.clear();
+        for (User u : judgeList) {
+            if (u.getUid() != null) {
+                selectedJudgeUids.add(u.getUid());
+            }
+        }
+        notifyDataSetChanged();
+        if (selectionListener != null) selectionListener.onSelectionChanged(selectedJudgeUids.size());
+    }
+
+    public void clearSelection() {
+        selectedJudgeUids.clear();
+        notifyDataSetChanged();
+        if (selectionListener != null) selectionListener.onSelectionChanged(0);
+    }
+
+    public void toggleSelection(String uid) {
+        if (uid == null) return;
+        if (selectedJudgeUids.contains(uid)) {
+            selectedJudgeUids.remove(uid);
+        } else {
+            selectedJudgeUids.add(uid);
+        }
+        notifyDataSetChanged();
+        if (selectionListener != null) selectionListener.onSelectionChanged(selectedJudgeUids.size());
     }
 
     @NonNull
@@ -68,8 +120,23 @@ public class JudgeAdapter extends RecyclerView.Adapter<JudgeAdapter.JudgeViewHol
             holder.tvJudgePanelBadge.setVisibility(View.VISIBLE);
         }
 
+        boolean isSelected = judge.getUid() != null && selectedJudgeUids.contains(judge.getUid());
+        holder.cbSelectJudge.setOnCheckedChangeListener(null);
+        holder.cbSelectJudge.setChecked(isSelected);
+
+        holder.cbSelectJudge.setOnClickListener(v -> toggleSelection(judge.getUid()));
+
         holder.itemView.setOnClickListener(v -> {
-            if (listener != null) listener.onJudgeClick(judge);
+            if (!selectedJudgeUids.isEmpty()) {
+                toggleSelection(judge.getUid());
+            } else if (listener != null) {
+                listener.onJudgeClick(judge);
+            }
+        });
+
+        holder.itemView.setOnLongClickListener(v -> {
+            toggleSelection(judge.getUid());
+            return true;
         });
     }
 
@@ -79,10 +146,12 @@ public class JudgeAdapter extends RecyclerView.Adapter<JudgeAdapter.JudgeViewHol
     }
 
     static class JudgeViewHolder extends RecyclerView.ViewHolder {
+        MaterialCheckBox cbSelectJudge;
         TextView tvJudgeAvatar, tvJudgeName, tvJudgeEmail, tvJudgePanelBadge;
 
         public JudgeViewHolder(@NonNull View itemView) {
             super(itemView);
+            cbSelectJudge = itemView.findViewById(R.id.cbSelectJudge);
             tvJudgeAvatar = itemView.findViewById(R.id.tvJudgeAvatar);
             tvJudgeName = itemView.findViewById(R.id.tvJudgeName);
             tvJudgeEmail = itemView.findViewById(R.id.tvJudgeEmail);

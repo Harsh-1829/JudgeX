@@ -39,9 +39,13 @@ public class EvaluationCriteriaAdapter extends RecyclerView.Adapter<EvaluationCr
         }
     }
 
-    public void setExistingData(Map<String, Double> existingScores, Map<String, String> existingComments) {
+    public void setExistingData(Map<String, ?> existingScores, Map<String, String> existingComments) {
         if (existingScores != null) {
-            scoresMap.putAll(existingScores);
+            for (Map.Entry<String, ?> entry : existingScores.entrySet()) {
+                if (entry.getKey() != null && entry.getValue() instanceof Number) {
+                    scoresMap.put(entry.getKey(), ((Number) entry.getValue()).doubleValue());
+                }
+            }
             for (Criterion c : criteriaList) {
                 if (scoresMap.containsKey(c.getId())) {
                     Double s = scoresMap.get(c.getId());
@@ -119,6 +123,7 @@ public class EvaluationCriteriaAdapter extends RecyclerView.Adapter<EvaluationCr
                     holder.tilScore.setError("Score is required");
                 } else {
                     try {
+                        input = input.replace(',', '.');
                         double val = Double.parseDouble(input);
                         if (val < 0) {
                             validityMap.put(criterion.getId(), false);
@@ -204,13 +209,111 @@ public class EvaluationCriteriaAdapter extends RecyclerView.Adapter<EvaluationCr
         return sum > 0 ? sum : 100.0;
     }
 
-    public boolean isAllScoresValid() {
-        if (scoresMap.size() != criteriaList.size()) return false;
-        for (Criterion c : criteriaList) {
-            Boolean valid = validityMap.get(c.getId());
-            if (valid == null || !valid) return false;
+    public static class CriteriaValidationResult {
+        private final boolean valid;
+        private final String errorMessage;
+        private final int invalidPosition;
+        private final String invalidCriterionName;
+
+        public CriteriaValidationResult(boolean valid, String errorMessage, int invalidPosition, String invalidCriterionName) {
+            this.valid = valid;
+            this.errorMessage = errorMessage;
+            this.invalidPosition = invalidPosition;
+            this.invalidCriterionName = invalidCriterionName;
         }
-        return true;
+
+        public boolean isValid() {
+            return valid;
+        }
+
+        public String getErrorMessage() {
+            return errorMessage;
+        }
+
+        public int getInvalidPosition() {
+            return invalidPosition;
+        }
+
+        public String getInvalidCriterionName() {
+            return invalidCriterionName;
+        }
+    }
+
+    public CriteriaValidationResult validateCriteria() {
+        if (criteriaList == null || criteriaList.isEmpty()) {
+            return new CriteriaValidationResult(false, "No evaluation criteria defined for this event.", -1, null);
+        }
+
+        for (int i = 0; i < criteriaList.size(); i++) {
+            Criterion c = criteriaList.get(i);
+            String cid = c.getId();
+            if (cid == null) {
+                return new CriteriaValidationResult(false, "Criterion has an invalid configuration (missing ID).", i, c.getName());
+            }
+
+            if (!scoresMap.containsKey(cid)) {
+                return new CriteriaValidationResult(false,
+                        "Please award marks for criterion '" + c.getName() + "' (Allowed: 0.0 to " + String.format(java.util.Locale.US, "%.0f", c.getMaxMarks()) + " marks).",
+                        i, c.getName());
+            }
+
+            Double score = scoresMap.get(cid);
+            if (score == null) {
+                return new CriteriaValidationResult(false,
+                        "Please enter a valid numeric score for '" + c.getName() + "'.",
+                        i, c.getName());
+            }
+
+            if (score < 0.0) {
+                return new CriteriaValidationResult(false,
+                        "Score for '" + c.getName() + "' cannot be negative.",
+                        i, c.getName());
+            }
+
+            if (score > c.getMaxMarks()) {
+                return new CriteriaValidationResult(false,
+                        "Score of " + score + " for '" + c.getName() + "' exceeds maximum allowed marks of " + String.format(java.util.Locale.US, "%.0f", c.getMaxMarks()) + ".",
+                        i, c.getName());
+            }
+        }
+
+        return new CriteriaValidationResult(true, null, -1, null);
+    }
+
+    public void commitAllVisibleInputs(RecyclerView recyclerView) {
+        if (recyclerView == null) return;
+        for (int i = 0; i < recyclerView.getChildCount(); i++) {
+            View child = recyclerView.getChildAt(i);
+            RecyclerView.ViewHolder rawHolder = recyclerView.getChildViewHolder(child);
+            if (rawHolder instanceof EvalViewHolder) {
+                EvalViewHolder holder = (EvalViewHolder) rawHolder;
+                int pos = holder.getBindingAdapterPosition();
+                if (pos >= 0 && pos < criteriaList.size()) {
+                    Criterion criterion = criteriaList.get(pos);
+                    String input = holder.etScore.getText() != null ? holder.etScore.getText().toString().trim() : "";
+                    if (!input.isEmpty()) {
+                        try {
+                            input = input.replace(',', '.');
+                            double val = Double.parseDouble(input);
+                            if (val >= 0 && val <= criterion.getMaxMarks()) {
+                                scoresMap.put(criterion.getId(), val);
+                                validityMap.put(criterion.getId(), true);
+                                holder.tilScore.setError(null);
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                    String comment = holder.etCriterionComment.getText() != null ? holder.etCriterionComment.getText().toString().trim() : "";
+                    if (!comment.isEmpty()) {
+                        commentsMap.put(criterion.getId(), comment);
+                    }
+                }
+            }
+        }
+        notifyScoreChange();
+    }
+
+    public boolean isAllScoresValid() {
+        return validateCriteria().isValid();
     }
 
     public Map<String, Double> getScoresMap() {

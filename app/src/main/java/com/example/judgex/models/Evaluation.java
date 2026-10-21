@@ -106,11 +106,27 @@ public class Evaluation implements Serializable {
 
     public Map<String, Double> getScores() {
         if (scores == null) scores = new HashMap<>();
-        return scores;
+        Map<String, Double> safeScores = new HashMap<>();
+        for (Map.Entry<?, ?> entry : scores.entrySet()) {
+            if (entry.getKey() != null && entry.getValue() instanceof Number) {
+                safeScores.put(entry.getKey().toString(), ((Number) entry.getValue()).doubleValue());
+            }
+        }
+        return safeScores;
     }
 
-    public void setScores(Map<String, Double> scores) {
-        this.scores = scores;
+    public void setScores(Map<String, ?> scores) {
+        if (scores == null) {
+            this.scores = new HashMap<>();
+            return;
+        }
+        Map<String, Double> safeScores = new HashMap<>();
+        for (Map.Entry<?, ?> entry : scores.entrySet()) {
+            if (entry.getKey() != null && entry.getValue() instanceof Number) {
+                safeScores.put(entry.getKey().toString(), ((Number) entry.getValue()).doubleValue());
+            }
+        }
+        this.scores = safeScores;
     }
 
     public Map<String, String> getCriterionComments() {
@@ -167,6 +183,6 @@ public class Evaluation implements Serializable {
     }
 
     public boolean isSubmitted() {
-        return STATUS_SUBMITTED.equalsIgnoreCase(this.status);
+        return STATUS_SUBMITTED.equalsIgnoreCase(this.status) || "COMPLETED".equalsIgnoreCase(this.status);
     }
 }

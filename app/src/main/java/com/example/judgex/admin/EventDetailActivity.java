@@ -30,7 +30,7 @@ public class EventDetailActivity extends AppCompatActivity {
 
     private MaterialToolbar toolbar;
     private SwipeRefreshLayout swipeRefreshLayout;
-    private TextView tvEventName, tvEventDescription;
+    private TextView tvEventName, tvEventDescription, tvEventScheduleVenue;
     private TextView tvStatusBadge, tvScoringBadge, tvAnonymousBadge;
     private MaterialButton btnChangeLifecycle;
     private MaterialCardView cardPanels, cardJudges, cardTeams, cardCriteria, cardProgress, cardRankings, cardSettings;
@@ -71,6 +71,7 @@ public class EventDetailActivity extends AppCompatActivity {
         swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout);
         tvEventName = findViewById(R.id.tvEventName);
         tvEventDescription = findViewById(R.id.tvEventDescription);
+        tvEventScheduleVenue = findViewById(R.id.tvEventScheduleVenue);
         tvStatusBadge = findViewById(R.id.tvStatusBadge);
         tvScoringBadge = findViewById(R.id.tvScoringBadge);
         tvAnonymousBadge = findViewById(R.id.tvAnonymousBadge);
@@ -131,6 +132,28 @@ public class EventDetailActivity extends AppCompatActivity {
         tvEventName.setText(currentEvent.getName() != null ? currentEvent.getName() : "Event");
         tvEventDescription.setText(currentEvent.getDescription() != null && !currentEvent.getDescription().isEmpty()
                 ? currentEvent.getDescription() : "No description provided");
+
+        StringBuilder scheduleVenue = new StringBuilder();
+        if (currentEvent.getScheduledDate() > 0) {
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.US);
+            scheduleVenue.append("📅 ").append(sdf.format(new java.util.Date(currentEvent.getScheduledDate())));
+        }
+        if (currentEvent.getStartTime() != null && !currentEvent.getStartTime().isEmpty()) {
+            scheduleVenue.append(" • ").append(currentEvent.getStartTime());
+            if (currentEvent.getEndTime() != null && !currentEvent.getEndTime().isEmpty()) {
+                scheduleVenue.append(" - ").append(currentEvent.getEndTime());
+            }
+        }
+        if (currentEvent.getVenue() != null && !currentEvent.getVenue().isEmpty()) {
+            scheduleVenue.append(" • 📍 ").append(currentEvent.getVenue());
+        }
+
+        if (scheduleVenue.length() > 0) {
+            tvEventScheduleVenue.setText(scheduleVenue.toString());
+            tvEventScheduleVenue.setVisibility(View.VISIBLE);
+        } else {
+            tvEventScheduleVenue.setVisibility(View.GONE);
+        }
 
         // Status Badge
         String status = currentEvent.getStatus() != null ? currentEvent.getStatus() : Event.STATUS_UPCOMING;

@@ -138,4 +138,63 @@ public class WorkflowAndTenancyTest {
 
         assertEquals("Neural Ninjas", openViewName);
     }
+
+    @Test
+    public void testEvaluationTypeSafetyWithFirestoreLongs() {
+        Evaluation eval = new Evaluation();
+        // Simulate Firestore deserializing numbers as Long or Integer
+        Map<String, Object> rawFirestoreMap = new HashMap<>();
+        rawFirestoreMap.put("crit_innovation", 25L); // Long from Firestore
+        rawFirestoreMap.put("crit_feasibility", 20);  // Integer
+        rawFirestoreMap.put("crit_presentation", 18.5); // Double
+
+        eval.setScores(rawFirestoreMap);
+
+        Map<String, Double> normalizedScores = eval.getScores();
+        assertNotNull(normalizedScores);
+        assertEquals(Double.valueOf(25.0), normalizedScores.get("crit_innovation"));
+        assertEquals(Double.valueOf(20.0), normalizedScores.get("crit_feasibility"));
+        assertEquals(Double.valueOf(18.5), normalizedScores.get("crit_presentation"));
+    }
+
+    @Test
+    public void testEventSchedulingAndSoftDelete() {
+        long futureTime = System.currentTimeMillis() + 86400000L * 7; // 7 days in future
+        Event scheduledEvent = new Event("ev_sih", "Smart India Hackathon", "Campus round", Event.STATUS_UPCOMING, false, System.currentTimeMillis());
+        scheduledEvent.setScheduledDate(futureTime);
+        scheduledEvent.setStartTime("09:00 AM");
+        scheduledEvent.setEndTime("05:00 PM");
+        scheduledEvent.setVenue("Auditorium B");
+
+        // Verify future event is upcoming and not accepting evaluations
+        assertTrue(scheduledEvent.isUpcoming());
+        assertFalse(scheduledEvent.isAcceptingEvaluations());
+        assertEquals("Auditorium B", scheduledEvent.getVenue());
+        assertEquals("09:00 AM", scheduledEvent.getStartTime());
+
+        // Verify soft-delete safeguard
+        assertFalse(scheduledEvent.isDeleted());
+        scheduledEvent.setDeleted(true);
+        scheduledEvent.setStatus(Event.STATUS_ARCHIVED);
+        assertTrue(scheduledEvent.isDeleted());
+        assertEquals(Event.STATUS_ARCHIVED, scheduledEvent.getStatus());
+        assertFalse(scheduledEvent.isAcceptingEvaluations());
+    }
+
+    @Test
+    public void testEvaluationDraftVsSubmittedStatusTransitions() {
+        Evaluation draft = new Evaluation();
+        draft.setStatus(Evaluation.STATUS_DRAFT);
+        assertTrue(draft.isDraft());
+        assertFalse(draft.isSubmitted());
+
+        draft.setStatus(Evaluation.STATUS_SUBMITTED);
+        assertFalse(draft.isDraft());
+        assertTrue(draft.isSubmitted());
+
+        // Legacy compatibility
+        Evaluation legacyCompleted = new Evaluation();
+        legacyCompleted.setStatus("COMPLETED");
+        assertTrue(legacyCompleted.isSubmitted());
+    }
 }

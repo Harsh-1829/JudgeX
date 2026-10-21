@@ -31,20 +31,18 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-public class JudgeDashboardActivity extends AppCompatActivity implements TeamAdapter.OnTeamClickListener {
+public class JudgeDashboardActivity extends AppCompatActivity {
 
     private SwipeRefreshLayout swipeRefreshLayout;
     private TextView tvJudgeName, tvJudgeEmail, tvAssignedPanel, tvEventName, tvLockedBanner;
-    private TextView tvCountAssigned, tvCountEvaluated, tvCountPending, tvEmptyTeams;
+    private TextView tvCountPending, tvCountDrafts, tvCountSubmitted;
     private MaterialButton btnLogout, btnScan;
     private MaterialCardView cardScanQR;
-    private RecyclerView recyclerViewAssignedTeams;
 
     private final FirebaseManager firebaseManager = FirebaseManager.getInstance();
     private final List<Team> assignedTeams = new ArrayList<>();
     private final Set<String> evaluatedTeamIds = new HashSet<>();
     private final Set<String> draftTeamIds = new HashSet<>();
-    private TeamAdapter adapter;
 
     private User currentJudge;
     private Panel currentPanel;
@@ -73,18 +71,12 @@ public class JudgeDashboardActivity extends AppCompatActivity implements TeamAda
         tvAssignedPanel = findViewById(R.id.tvAssignedPanel);
         tvEventName = findViewById(R.id.tvEventName);
         tvLockedBanner = findViewById(R.id.tvLockedBanner);
-        tvCountAssigned = findViewById(R.id.tvCountAssigned);
-        tvCountEvaluated = findViewById(R.id.tvCountEvaluated);
         tvCountPending = findViewById(R.id.tvCountPending);
-        tvEmptyTeams = findViewById(R.id.tvEmptyTeams);
+        tvCountDrafts = findViewById(R.id.tvCountDrafts);
+        tvCountSubmitted = findViewById(R.id.tvCountSubmitted);
         btnLogout = findViewById(R.id.btnLogout);
         btnScan = findViewById(R.id.btnScan);
         cardScanQR = findViewById(R.id.cardScanQR);
-        recyclerViewAssignedTeams = findViewById(R.id.recyclerViewAssignedTeams);
-
-        recyclerViewAssignedTeams.setLayoutManager(new LinearLayoutManager(this));
-        adapter = new TeamAdapter(assignedTeams, evaluatedTeamIds, draftTeamIds, this);
-        recyclerViewAssignedTeams.setAdapter(adapter);
 
         swipeRefreshLayout.setOnRefreshListener(this::loadJudgeProfileAndData);
 
@@ -248,62 +240,19 @@ public class JudgeDashboardActivity extends AppCompatActivity implements TeamAda
 
     private void updateTeamsUI() {
         int totalAssigned = assignedTeams.size();
-        int totalEvaluated = 0;
+        int totalSubmitted = 0;
         int totalDrafts = 0;
         for (Team team : assignedTeams) {
             if (evaluatedTeamIds.contains(team.getId())) {
-                totalEvaluated++;
+                totalSubmitted++;
             } else if (draftTeamIds.contains(team.getId())) {
                 totalDrafts++;
             }
         }
-        int totalPending = totalAssigned - totalEvaluated;
+        int totalPending = Math.max(0, totalAssigned - totalSubmitted);
 
-        tvCountAssigned.setText(String.valueOf(totalAssigned));
-        tvCountEvaluated.setText(String.valueOf(totalEvaluated));
         tvCountPending.setText(String.valueOf(totalPending));
-
-        if (assignedTeams.isEmpty()) {
-            tvEmptyTeams.setVisibility(View.VISIBLE);
-            recyclerViewAssignedTeams.setVisibility(View.GONE);
-        } else {
-            tvEmptyTeams.setVisibility(View.GONE);
-            recyclerViewAssignedTeams.setVisibility(View.VISIBLE);
-        }
-
-        adapter.notifyDataSetChanged();
-    }
-
-    @Override
-    public void onTeamClick(Team team) {
-        if (evaluatedTeamIds.contains(team.getId())) {
-            // Already evaluated by this judge - show existing evaluation receipt
-            Intent intent = new Intent(this, SubmissionConfirmationActivity.class);
-            intent.putExtra(Constants.EXTRA_TEAM, team);
-            intent.putExtra(Constants.EXTRA_JUDGE_ID, currentJudge.getUid());
-            intent.putExtra(Constants.EXTRA_EVENT_ID, team.getEventId());
-            startActivity(intent);
-            return;
-        }
-
-        if (isEvaluationsLocked) {
-            UIUtils.showToast(this, "Evaluations are currently locked by the Admin.");
-            return;
-        }
-
-        // Open evaluation form
-        Intent intent = new Intent(this, EvaluationFormActivity.class);
-        intent.putExtra(Constants.EXTRA_TEAM, team);
-        if (currentEvent != null) {
-            intent.putExtra(Constants.EXTRA_EVENT, currentEvent);
-        }
-        startActivity(intent);
-    }
-
-    @Override
-    public void onQRClick(Team team) {
-        Intent intent = new Intent(this, QRViewActivity.class);
-        intent.putExtra(Constants.EXTRA_TEAM, team);
-        startActivity(intent);
+        tvCountDrafts.setText(String.valueOf(totalDrafts));
+        tvCountSubmitted.setText(String.valueOf(totalSubmitted));
     }
 }

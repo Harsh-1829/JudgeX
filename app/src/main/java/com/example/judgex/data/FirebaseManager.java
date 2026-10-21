@@ -493,7 +493,10 @@ public class FirebaseManager {
         return db.runTransaction(transaction -> {
             DocumentSnapshot snapshot = transaction.get(evalRef);
             if (snapshot.exists()) {
-                throw new IllegalStateException("An evaluation for this team by you has already been submitted!");
+                Evaluation existing = snapshot.toObject(Evaluation.class);
+                if (existing != null && existing.isSubmitted()) {
+                    throw new IllegalStateException("An evaluation for this team by you has already been submitted and cannot be changed.");
+                }
             }
             transaction.set(evalRef, evaluation);
             return null;

@@ -27,6 +27,7 @@ import com.google.android.material.textfield.TextInputEditText;
 import com.google.firebase.firestore.DocumentSnapshot;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -257,6 +258,10 @@ public class EvaluationFormActivity extends AppCompatActivity implements Evaluat
             return;
         }
 
+        if (adapter != null) {
+            adapter.commitAllVisibleInputs(recyclerViewCriteria);
+        }
+
         User currentJudge = firebaseManager.getCurrentUserProfile();
         String judgeId = currentJudge != null ? currentJudge.getUid() :
                 (firebaseManager.getCurrentFirebaseUser() != null ? firebaseManager.getCurrentFirebaseUser().getUid() : "");
@@ -264,6 +269,8 @@ public class EvaluationFormActivity extends AppCompatActivity implements Evaluat
 
         String remarks = etRemarks.getText() != null ? etRemarks.getText().toString().trim() : "";
 
+        btnSaveDraft.setEnabled(false);
+        btnSubmitEvaluation.setEnabled(false);
         Dialog loading = UIUtils.showLoadingDialog(this, "Saving draft...");
 
         Evaluation draft = new Evaluation(
@@ -273,8 +280,8 @@ public class EvaluationFormActivity extends AppCompatActivity implements Evaluat
                 currentTeam.getPanelId(),
                 judgeId,
                 judgeName,
-                adapter.getScoresMap(),
-                adapter.getCommentsMap(),
+                adapter != null ? adapter.getScoresMap() : new HashMap<>(),
+                adapter != null ? adapter.getCommentsMap() : new HashMap<>(),
                 currentCalculatedScore,
                 currentMaxScore,
                 remarks,
@@ -285,11 +292,15 @@ public class EvaluationFormActivity extends AppCompatActivity implements Evaluat
         firebaseManager.getEvaluationsCollection().document(draft.getId()).set(draft)
                 .addOnSuccessListener(aVoid -> {
                     loading.dismiss();
+                    btnSaveDraft.setEnabled(true);
+                    btnSubmitEvaluation.setEnabled(true);
                     tvDraftBadge.setVisibility(View.VISIBLE);
                     UIUtils.showToast(this, "Draft saved successfully");
                 })
                 .addOnFailureListener(e -> {
                     loading.dismiss();
+                    btnSaveDraft.setEnabled(true);
+                    btnSubmitEvaluation.setEnabled(true);
                     UIUtils.showToast(this, "Failed to save draft: " + e.getMessage());
                 });
     }
@@ -300,8 +311,21 @@ public class EvaluationFormActivity extends AppCompatActivity implements Evaluat
             return;
         }
 
-        if (!isAllCriteriaScored || adapter == null || !adapter.isAllScoresValid()) {
-            UIUtils.showToast(this, "Please grade all criteria within allowed mark ranges before submitting.");
+        if (adapter == null) {
+            UIUtils.showToast(this, "Evaluation criteria form is not ready yet.");
+            return;
+        }
+
+        // Commit any visible EditText inputs that haven't triggered focus loss yet
+        adapter.commitAllVisibleInputs(recyclerViewCriteria);
+
+        // Perform strict criteria validation
+        EvaluationCriteriaAdapter.CriteriaValidationResult validation = adapter.validateCriteria();
+        if (!validation.isValid()) {
+            UIUtils.showToast(this, validation.getErrorMessage());
+            if (validation.getInvalidPosition() >= 0) {
+                recyclerViewCriteria.smoothScrollToPosition(validation.getInvalidPosition());
+            }
             return;
         }
 
@@ -316,11 +340,13 @@ public class EvaluationFormActivity extends AppCompatActivity implements Evaluat
                 ? "Team #" + currentTeam.getTeamNumber() 
                 : currentTeam.getTeamName();
 
-        String scoreDisplay = String.format("%.1f", currentCalculatedScore) + " / " + String.format("%.0f", currentMaxScore);
+        String scoreDisplay = String.format(java.util.Locale.US, "%.1f", currentCalculatedScore) + " / " + String.format(java.util.Locale.US, "%.0f", currentMaxScore);
 
         UIUtils.showConfirmationDialog(this, "Confirm Submission",
                 "Submit evaluation with final score of " + scoreDisplay + " for " + teamDisplayName + "?\n\nSubmissions are permanent and cannot be modified.",
                 "Submit", () -> {
+                    btnSubmitEvaluation.setEnabled(false);
+                    btnSaveDraft.setEnabled(false);
                     Dialog loading = UIUtils.showLoadingDialog(this, "Submitting evaluation securely...");
 
                     Evaluation evaluation = new Evaluation(
@@ -350,7 +376,10 @@ public class EvaluationFormActivity extends AppCompatActivity implements Evaluat
                             })
                             .addOnFailureListener(e -> {
                                 loading.dismiss();
-                                UIUtils.showToast(this, "Submission Error: " + e.getMessage());
+                                btnSubmitEvaluation.setEnabled(true);
+                                btnSaveDraft.setEnabled(true);
+                                String msg = e.getMessage() != null ? e.getMessage() : "Unknown error";
+                                UIUtils.showToast(this, "Submission Error: " + msg);
                             });
                 });
     }

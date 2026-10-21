@@ -74,6 +74,16 @@
                             android:textColor="#E2E8F0"
                             android:textSize="14sp" />
 
+                        <TextView
+                            android:id="@+id/tvEventScheduleVenue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:textColor="#FDE047"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:visibility="gone" />
+
                         <!-- Badges Row -->
                         <LinearLayout
                             android:layout_width="match_parent"

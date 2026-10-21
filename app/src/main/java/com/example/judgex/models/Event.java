@@ -21,12 +21,18 @@ public class Event implements Serializable {
     private boolean isLocked;
     private String organizationId; // Multi-college tenant isolation
     private long createdAt;
+    private long scheduledDate;
+    private String startTime;
+    private String endTime;
+    private String venue;
+    private boolean deleted;
 
     public Event() {
         this.status = STATUS_UPCOMING;
         this.scoringType = SCORING_WEIGHTED;
         this.isAnonymousJudging = false;
         this.isLocked = false;
+        this.deleted = false;
     }
 
     public Event(String id, String name, String description, String status, boolean isLocked, long createdAt) {
@@ -140,5 +146,45 @@ public class Event implements Serializable {
 
     public void setOrganizationId(String organizationId) {
         this.organizationId = organizationId;
+    }
+
+    public long getScheduledDate() {
+        return scheduledDate;
+    }
+
+    public void setScheduledDate(long scheduledDate) {
+        this.scheduledDate = scheduledDate;
+    }
+
+    public String getStartTime() {
+        return startTime;
+    }
+
+    public void setStartTime(String startTime) {
+        this.startTime = startTime;
+    }
+
+    public String getEndTime() {
+        return endTime;
+    }
+
+    public void setEndTime(String endTime) {
+        this.endTime = endTime;
+    }
+
+    public String getVenue() {
+        return venue;
+    }
+
+    public void setVenue(String venue) {
+        this.venue = venue;
+    }
+
+    public boolean isDeleted() {
+        return deleted;
+    }
+
+    public void setDeleted(boolean deleted) {
+        this.deleted = deleted;
     }
 }
