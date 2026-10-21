@@ -16,6 +16,7 @@ import com.example.judgex.adapters.EvaluationCriteriaAdapter;
 import com.example.judgex.data.FirebaseManager;
 import com.example.judgex.models.Criterion;
 import com.example.judgex.models.Evaluation;
+import com.example.judgex.models.Event;
 import com.example.judgex.models.Team;
 import com.example.judgex.models.User;
 import com.example.judgex.utils.Constants;
@@ -44,7 +45,9 @@ public class EvaluationFormActivity extends AppCompatActivity implements Evaluat
     private EvaluationCriteriaAdapter adapter;
 
     private Team currentTeam;
-    private double currentTotalWeightedScore = 0.0;
+    private Event currentEvent;
+    private double currentCalculatedScore = 0.0;
+    private double currentMaxScore = 100.0;
     private boolean isAllCriteriaScored = false;
     private Evaluation loadedDraft = null;
 
@@ -54,6 +57,8 @@ public class EvaluationFormActivity extends AppCompatActivity implements Evaluat
         setContentView(R.layout.activity_evaluation_form);
 
         currentTeam = (Team) getIntent().getSerializableExtra(Constants.EXTRA_TEAM);
+        currentEvent = (Event) getIntent().getSerializableExtra(Constants.EXTRA_EVENT);
+
         if (currentTeam == null) {
             UIUtils.showToast(this, "Team information missing");
             finish();
@@ -61,8 +66,7 @@ public class EvaluationFormActivity extends AppCompatActivity implements Evaluat
         }
 
         initViews();
-        displayTeamDetails();
-        loadCriteriaAndDraft();
+        loadEventAndSetupUI();
     }
 
     private void initViews() {
@@ -91,15 +95,53 @@ public class EvaluationFormActivity extends AppCompatActivity implements Evaluat
         btnSubmitEvaluation.setOnClickListener(v -> handleSubmitEvaluation());
     }
 
+    private void loadEventAndSetupUI() {
+        if (currentEvent != null) {
+            displayTeamDetails();
+            loadCriteriaAndDraft();
+        } else if (currentTeam.getEventId() != null) {
+            firebaseManager.getEvent(currentTeam.getEventId())
+                    .addOnSuccessListener(doc -> {
+                        if (doc.exists()) {
+                            currentEvent = doc.toObject(Event.class);
+                            if (currentEvent != null) {
+                                currentEvent.setId(doc.getId());
+                            }
+                        }
+                        displayTeamDetails();
+                        loadCriteriaAndDraft();
+                    })
+                    .addOnFailureListener(e -> {
+                        displayTeamDetails();
+                        loadCriteriaAndDraft();
+                    });
+        } else {
+            displayTeamDetails();
+            loadCriteriaAndDraft();
+        }
+    }
+
     private void displayTeamDetails() {
         tvTeamNumber.setText(currentTeam.getTeamNumber() != null ? currentTeam.getTeamNumber() : "TM");
         tvCategory.setText(currentTeam.getCategory() != null ? currentTeam.getCategory() : "General");
-        tvTeamName.setText(currentTeam.getTeamName() != null ? currentTeam.getTeamName() : "Team");
         tvProjectTitle.setText(currentTeam.getProjectTitle() != null ? currentTeam.getProjectTitle() : "");
 
-        String leader = currentTeam.getLeaderName() != null ? currentTeam.getLeaderName() : "Leader";
-        int members = currentTeam.getMemberCount() > 0 ? currentTeam.getMemberCount() : 1;
-        tvLeaderDetails.setText("👤 Leader: " + leader + " (" + members + " members)");
+        boolean isAnonymous = currentEvent != null && currentEvent.isAnonymousJudging();
+        if (isAnonymous) {
+            tvTeamName.setText("Team #" + currentTeam.getTeamNumber());
+            tvLeaderDetails.setText("🔒 Anonymous Presentation (" + currentTeam.getMemberCount() + " members)");
+        } else {
+            tvTeamName.setText(currentTeam.getTeamName() != null ? currentTeam.getTeamName() : "Team");
+            String leader = currentTeam.getLeaderName() != null ? currentTeam.getLeaderName() : "Leader";
+            int members = currentTeam.getMemberCount() > 0 ? currentTeam.getMemberCount() : 1;
+            tvLeaderDetails.setText("👤 Leader: " + leader + " (" + members + " members)");
+        }
+
+        if (currentEvent != null && currentEvent.isLocked()) {
+            btnSubmitEvaluation.setEnabled(false);
+            btnSaveDraft.setEnabled(false);
+            UIUtils.showToast(this, "Notice: Event is locked. New submissions are disabled.");
+        }
     }
 
     private void loadCriteriaAndDraft() {
@@ -119,13 +161,20 @@ public class EvaluationFormActivity extends AppCompatActivity implements Evaluat
                         }
                     }
 
-                    // Fallback default criteria if none created yet
+                    // Strict requirement: Never automatically insert fallback criteria
                     if (criteriaList.isEmpty()) {
-                        criteriaList.add(new Criterion("1", currentTeam.getEventId(), "Innovation & Novelty", "Uniqueness of idea", 10.0, 25.0, 0));
-                        criteriaList.add(new Criterion("2", currentTeam.getEventId(), "Technical Feasibility", "Architecture & Code quality", 10.0, 25.0, 1));
-                        criteriaList.add(new Criterion("3", currentTeam.getEventId(), "Implementation & Demo", "Live prototype execution", 10.0, 25.0, 2));
-                        criteriaList.add(new Criterion("4", currentTeam.getEventId(), "Presentation & Q&A", "Clarity of delivery and answers", 10.0, 25.0, 3));
+                        progressBarCriteria.setVisibility(View.GONE);
+                        new androidx.appcompat.app.AlertDialog.Builder(this)
+                                .setTitle("Evaluation Criteria Missing")
+                                .setMessage("No evaluation criteria have been defined for this event yet. An evaluation form cannot be created until criteria are added by the Admin.")
+                                .setPositiveButton("Close", (d, w) -> finish())
+                                .setCancelable(false)
+                                .show();
+                        return;
                     }
+
+                    // Enforce display ordering by orderIndex
+                    java.util.Collections.sort(criteriaList, (c1, c2) -> Integer.compare(c1.getOrderIndex(), c2.getOrderIndex()));
 
                     adapter = new EvaluationCriteriaAdapter(criteriaList, this);
                     recyclerViewCriteria.setAdapter(adapter);
@@ -187,13 +236,27 @@ public class EvaluationFormActivity extends AppCompatActivity implements Evaluat
     @Override
     public void onScoreUpdated(Map<String, Double> currentScores, Map<String, String> comments, double totalWeightedScore, boolean allValid) {
         this.isAllCriteriaScored = allValid;
-        this.currentTotalWeightedScore = totalWeightedScore;
+
+        boolean isRaw = currentEvent != null && Event.SCORING_RAW.equalsIgnoreCase(currentEvent.getScoringType());
+        if (isRaw) {
+            this.currentCalculatedScore = adapter != null ? adapter.calculateRawTotalScore() : 0.0;
+            this.currentMaxScore = adapter != null ? adapter.calculateTotalPossibleMarks() : 100.0;
+            tvRunningTotalScore.setText(String.format("%.1f / %.0f pts", currentCalculatedScore, currentMaxScore));
+        } else {
+            this.currentCalculatedScore = totalWeightedScore;
+            this.currentMaxScore = 100.0;
+            tvRunningTotalScore.setText(String.format("%.1f / 100", currentCalculatedScore));
+        }
 
         tvCriteriaProgress.setText(currentScores.size() + " of " + criteriaList.size() + " criteria scored");
-        tvRunningTotalScore.setText(String.format("%.1f / 100", currentTotalWeightedScore));
     }
 
     private void handleSaveDraft() {
+        if (currentEvent != null && currentEvent.isLocked()) {
+            UIUtils.showToast(this, "Event is locked. Draft saving is disabled.");
+            return;
+        }
+
         User currentJudge = firebaseManager.getCurrentUserProfile();
         String judgeId = currentJudge != null ? currentJudge.getUid() :
                 (firebaseManager.getCurrentFirebaseUser() != null ? firebaseManager.getCurrentFirebaseUser().getUid() : "");
@@ -212,8 +275,8 @@ public class EvaluationFormActivity extends AppCompatActivity implements Evaluat
                 judgeName,
                 adapter.getScoresMap(),
                 adapter.getCommentsMap(),
-                currentTotalWeightedScore,
-                100.0,
+                currentCalculatedScore,
+                currentMaxScore,
                 remarks,
                 System.currentTimeMillis(),
                 Evaluation.STATUS_DRAFT
@@ -232,6 +295,11 @@ public class EvaluationFormActivity extends AppCompatActivity implements Evaluat
     }
 
     private void handleSubmitEvaluation() {
+        if (currentEvent != null && currentEvent.isLocked()) {
+            UIUtils.showToast(this, "Event is locked. Submissions are rejected.");
+            return;
+        }
+
         if (!isAllCriteriaScored || adapter == null || !adapter.isAllScoresValid()) {
             UIUtils.showToast(this, "Please grade all criteria within allowed mark ranges before submitting.");
             return;
@@ -244,8 +312,14 @@ public class EvaluationFormActivity extends AppCompatActivity implements Evaluat
 
         String remarks = etRemarks.getText() != null ? etRemarks.getText().toString().trim() : "";
 
+        String teamDisplayName = (currentEvent != null && currentEvent.isAnonymousJudging()) 
+                ? "Team #" + currentTeam.getTeamNumber() 
+                : currentTeam.getTeamName();
+
+        String scoreDisplay = String.format("%.1f", currentCalculatedScore) + " / " + String.format("%.0f", currentMaxScore);
+
         UIUtils.showConfirmationDialog(this, "Confirm Submission",
-                "Submit evaluation with final score of " + String.format("%.1f", currentTotalWeightedScore) + " / 100 for " + currentTeam.getTeamName() + "?\n\nSubmissions are permanent and cannot be modified.",
+                "Submit evaluation with final score of " + scoreDisplay + " for " + teamDisplayName + "?\n\nSubmissions are permanent and cannot be modified.",
                 "Submit", () -> {
                     Dialog loading = UIUtils.showLoadingDialog(this, "Submitting evaluation securely...");
 
@@ -258,8 +332,8 @@ public class EvaluationFormActivity extends AppCompatActivity implements Evaluat
                             judgeName,
                             adapter.getScoresMap(),
                             adapter.getCommentsMap(),
-                            currentTotalWeightedScore,
-                            100.0,
+                            currentCalculatedScore,
+                            currentMaxScore,
                             remarks,
                             System.currentTimeMillis(),
                             Evaluation.STATUS_SUBMITTED

@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat;
 
 import com.example.judgex.R;
 import com.example.judgex.data.FirebaseManager;
+import com.example.judgex.models.Event;
 import com.example.judgex.models.Team;
 import com.example.judgex.models.User;
 import com.example.judgex.utils.Constants;
@@ -101,13 +102,22 @@ public class QRScannerActivity extends AppCompatActivity {
     }
 
     private void processScannedData(String rawData) {
+        if (!firebaseManager.isUserLoggedIn()) {
+            showErrorDialog("Unauthorized", "You must be signed in as an authorized judge to evaluate teams.");
+            return;
+        }
+
         String teamId = rawData;
+        String scannedEventId = null;
         String scannedPanelId = null;
 
         try {
             JSONObject json = new JSONObject(rawData);
             if (json.has("teamId")) {
                 teamId = json.getString("teamId");
+            }
+            if (json.has("eventId")) {
+                scannedEventId = json.getString("eventId");
             }
             if (json.has("panelId")) {
                 scannedPanelId = json.getString("panelId");
@@ -116,8 +126,10 @@ public class QRScannerActivity extends AppCompatActivity {
             // Raw text is assumed to be direct team ID
         }
 
-        // Fetch team record from Firestore
         final String finalTeamId = teamId;
+        final String finalScannedEventId = scannedEventId;
+
+        // Fetch team record from Firestore
         firebaseManager.getTeam(finalTeamId)
                 .addOnSuccessListener(doc -> {
                     if (!doc.exists()) {
@@ -132,40 +144,81 @@ public class QRScannerActivity extends AppCompatActivity {
                     }
                     team.setId(doc.getId());
 
-                    // Security check: Verify panel assignment
-                    if (judgePanelId != null && !judgePanelId.isEmpty() && team.getPanelId() != null) {
-                        if (!judgePanelId.equals(team.getPanelId())) {
-                            showErrorDialog("Panel Mismatch", 
-                                    "This team (" + team.getTeamNumber() + " - " + team.getTeamName() + 
-                                    ") belongs to a different evaluation panel.\n\nYou are only authorized to evaluate teams in your assigned panel.");
-                            return;
-                        }
+                    // Check event consistency
+                    String teamEventId = team.getEventId();
+                    if (eventId != null && !eventId.isEmpty() && !eventId.equals(teamEventId)) {
+                        showErrorDialog("Event Mismatch", 
+                                "This team belongs to a different event. You are currently judging in a separate event.");
+                        return;
                     }
 
-                    // Check if already evaluated by this judge
-                    User currentJudge = firebaseManager.getCurrentUserProfile();
-                    String judgeId = currentJudge != null ? currentJudge.getUid() : 
-                            (firebaseManager.getCurrentFirebaseUser() != null ? firebaseManager.getCurrentFirebaseUser().getUid() : "");
+                    if (finalScannedEventId != null && !finalScannedEventId.equals(teamEventId)) {
+                        showErrorDialog("Invalid Badge", "The QR code event identifier does not match the team record.");
+                        return;
+                    }
 
-                    firebaseManager.checkExistingEvaluation(team.getEventId(), team.getId(), judgeId)
-                            .addOnSuccessListener(evalDoc -> {
-                                if (evalDoc.exists()) {
-                                    showEvaluatedDialog(team);
-                                } else {
-                                    // Proceed to evaluation form!
-                                    Intent intent = new Intent(QRScannerActivity.this, EvaluationFormActivity.class);
-                                    intent.putExtra(Constants.EXTRA_TEAM, team);
-                                    startActivity(intent);
-                                    finish();
+                    // Verify event exists and is open
+                    firebaseManager.getEvent(teamEventId)
+                            .addOnSuccessListener(eDoc -> {
+                                if (!eDoc.exists()) {
+                                    showErrorDialog("Event Not Found", "The event for this team could not be found.");
+                                    return;
                                 }
+
+                                Event event = eDoc.toObject(Event.class);
+                                if (event == null) {
+                                    showErrorDialog("Error", "Could not load event data.");
+                                    return;
+                                }
+                                event.setId(eDoc.getId());
+
+                                if (event.isLocked() || event.isCompleted()) {
+                                    showErrorDialog("Event Locked", 
+                                            "This event (" + event.getName() + ") is " + event.getStatus() + 
+                                            ". Evaluations are closed and cannot accept new submissions.");
+                                    return;
+                                }
+
+                                // Security check: Verify panel assignment
+                                User currentJudge = firebaseManager.getCurrentUserProfile();
+                                String assignedPanel = currentJudge != null 
+                                        ? currentJudge.getPanelForEvent(teamEventId) 
+                                        : judgePanelId;
+
+                                if (assignedPanel != null && !assignedPanel.isEmpty() && team.getPanelId() != null) {
+                                    if (!assignedPanel.equals(team.getPanelId())) {
+                                        showErrorDialog("Panel Mismatch", 
+                                                "This team (" + team.getTeamNumber() + " - " + team.getTeamName() + 
+                                                ") is assigned to a different panel.\n\nYou are only authorized to evaluate teams in your assigned panel.");
+                                        return;
+                                    }
+                                }
+
+                                // Check if already evaluated by this judge
+                                String judgeId = currentJudge != null ? currentJudge.getUid() : 
+                                        (firebaseManager.getCurrentFirebaseUser() != null ? firebaseManager.getCurrentFirebaseUser().getUid() : "");
+
+                                firebaseManager.checkExistingEvaluation(team.getEventId(), team.getId(), judgeId)
+                                        .addOnSuccessListener(evalDoc -> {
+                                            if (evalDoc.exists()) {
+                                                showEvaluatedDialog(team);
+                                            } else {
+                                                // Proceed to evaluation form!
+                                                Intent intent = new Intent(QRScannerActivity.this, EvaluationFormActivity.class);
+                                                intent.putExtra(Constants.EXTRA_TEAM, team);
+                                                intent.putExtra(Constants.EXTRA_EVENT, event);
+                                                startActivity(intent);
+                                                finish();
+                                            }
+                                        })
+                                        .addOnFailureListener(e -> {
+                                            // Strict security: Never bypass essential authorization checks on network errors
+                                            showErrorDialog("Network Error", 
+                                                    "Unable to verify evaluation status due to connection error: " + e.getMessage() + 
+                                                    "\n\nEvaluation cannot proceed without verification.");
+                                        });
                             })
-                            .addOnFailureListener(e -> {
-                                // Proceed anyway if check fails on network error
-                                Intent intent = new Intent(QRScannerActivity.this, EvaluationFormActivity.class);
-                                intent.putExtra(Constants.EXTRA_TEAM, team);
-                                startActivity(intent);
-                                finish();
-                            });
+                            .addOnFailureListener(e -> showErrorDialog("Network Error", "Failed to verify event status: " + e.getMessage()));
                 })
                 .addOnFailureListener(e -> showErrorDialog("Scan Error", "Failed to retrieve team details: " + e.getMessage()));
     }

@@ -91,16 +91,22 @@ public class CriteriaManagerActivity extends AppCompatActivity implements Criter
                 .addOnSuccessListener(querySnapshot -> {
                     criteriaList.clear();
                     double totalWeight = 0.0;
+                    double totalMaxMarks = 0.0;
                     for (DocumentSnapshot doc : querySnapshot.getDocuments()) {
                         Criterion criterion = doc.toObject(Criterion.class);
                         if (criterion != null) {
                             criterion.setId(doc.getId());
                             criteriaList.add(criterion);
                             totalWeight += criterion.getWeight();
+                            totalMaxMarks += criterion.getMaxMarks();
                         }
                     }
 
-                    tvTotalMaxMarks.setText(String.format("Total Weight: %.0f%% (%d criteria)", totalWeight, criteriaList.size()));
+                    // Enforce display ordering by orderIndex
+                    java.util.Collections.sort(criteriaList, (c1, c2) -> Integer.compare(c1.getOrderIndex(), c2.getOrderIndex()));
+
+                    tvTotalMaxMarks.setText(String.format("Total: %.0f pts | Weight: %.0f%% (%d criteria)", 
+                            totalMaxMarks, totalWeight, criteriaList.size()));
 
                     if (criteriaList.isEmpty()) {
                         tvEmptyState.setVisibility(View.VISIBLE);
@@ -227,19 +233,32 @@ public class CriteriaManagerActivity extends AppCompatActivity implements Criter
     }
 
     private void confirmDeleteCriterion(Criterion criterion) {
-        UIUtils.showConfirmationDialog(this, "Delete Criterion",
-                "Are you sure you want to delete '" + criterion.getName() + "'?", "Delete", () -> {
-                    Dialog loading = UIUtils.showLoadingDialog(this, "Deleting criterion...");
-                    firebaseManager.deleteCriterion(criterion.getId())
-                            .addOnSuccessListener(aVoid -> {
-                                loading.dismiss();
-                                UIUtils.showToast(this, "Criterion deleted");
-                                loadCriteria();
-                            })
-                            .addOnFailureListener(e -> {
-                                loading.dismiss();
-                                UIUtils.showToast(this, "Failed to delete: " + e.getMessage());
-                            });
+        Dialog checking = UIUtils.showLoadingDialog(this, "Checking evaluation integrity...");
+        firebaseManager.getEvaluationsForEvent(eventId)
+                .addOnSuccessListener(evalSnapshots -> {
+                    checking.dismiss();
+                    boolean hasEvaluations = !evalSnapshots.isEmpty();
+                    String warning = hasEvaluations 
+                            ? "⚠️ WARNING: Evaluations have already been submitted for this event! Deleting this criterion will alter historical scores and rankings.\n\nAre you sure you want to proceed?" 
+                            : "Are you sure you want to delete '" + criterion.getName() + "'?";
+
+                    UIUtils.showConfirmationDialog(this, "Delete Criterion", warning, "Delete", () -> {
+                        Dialog loading = UIUtils.showLoadingDialog(this, "Deleting criterion...");
+                        firebaseManager.deleteCriterion(criterion.getId())
+                                .addOnSuccessListener(aVoid -> {
+                                    loading.dismiss();
+                                    UIUtils.showToast(this, "Criterion deleted");
+                                    loadCriteria();
+                                })
+                                .addOnFailureListener(e -> {
+                                    loading.dismiss();
+                                    UIUtils.showToast(this, "Failed to delete: " + e.getMessage());
+                                });
+                    });
+                })
+                .addOnFailureListener(e -> {
+                    checking.dismiss();
+                    UIUtils.showToast(this, "Failed to verify evaluation records: " + e.getMessage());
                 });
     }
 

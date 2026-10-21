@@ -12,6 +12,7 @@ public class Team implements Serializable {
     private String category;   // e.g. Smart Automation, AI/ML
     private String leaderName;
     private String leaderEmail;
+    private String leaderUid;
     private int memberCount;
     private String qrCodeData;
     private long createdAt;
@@ -32,9 +33,19 @@ public class Team implements Serializable {
         this.category = category;
         this.leaderName = leaderName;
         this.leaderEmail = leaderEmail;
+        this.leaderUid = null;
         this.memberCount = memberCount;
         this.qrCodeData = qrCodeData;
         this.createdAt = createdAt;
+    }
+
+    public Team(String id, String teamName, String teamNumber, String eventId, String panelId) {
+        this.id = id;
+        this.teamName = teamName;
+        this.teamNumber = teamNumber;
+        this.eventId = eventId;
+        this.panelId = panelId;
+        this.createdAt = System.currentTimeMillis();
     }
 
     public String getId() {
@@ -107,6 +118,14 @@ public class Team implements Serializable {
 
     public void setLeaderEmail(String leaderEmail) {
         this.leaderEmail = leaderEmail;
+    }
+
+    public String getLeaderUid() {
+        return leaderUid;
+    }
+
+    public void setLeaderUid(String leaderUid) {
+        this.leaderUid = leaderUid;
     }
 
     public int getMemberCount() {

@@ -183,6 +183,25 @@ public class EvaluationCriteriaAdapter extends RecyclerView.Adapter<EvaluationCr
         return sum;
     }
 
+    public double calculateRawTotalScore() {
+        double sum = 0.0;
+        for (Criterion c : criteriaList) {
+            Double score = scoresMap.get(c.getId());
+            if (score != null) {
+                sum += score;
+            }
+        }
+        return sum;
+    }
+
+    public double calculateTotalPossibleMarks() {
+        double sum = 0.0;
+        for (Criterion c : criteriaList) {
+            sum += c.getMaxMarks();
+        }
+        return sum > 0 ? sum : 100.0;
+    }
+
     public boolean isAllScoresValid() {
         if (scoresMap.size() != criteriaList.size()) return false;
         for (Criterion c : criteriaList) {

@@ -73,9 +73,17 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
         fabAddJudge = findViewById(R.id.fabAddJudge);
 
         toolbar.setNavigationOnClickListener(v -> finish());
+        toolbar.inflateMenu(R.menu.menu_judge_manager);
+        toolbar.setOnMenuItemClickListener(item -> {
+            if (item.getItemId() == R.id.action_random_assign_judges) {
+                handleRandomJudgeAssignment();
+                return true;
+            }
+            return false;
+        });
 
         recyclerViewJudges.setLayoutManager(new LinearLayoutManager(this));
-        adapter = new JudgeAdapter(judgeList, panelMap, this);
+        adapter = new JudgeAdapter(judgeList, panelMap, eventId, this);
         recyclerViewJudges.setAdapter(adapter);
 
         swipeRefreshLayout.setOnRefreshListener(this::loadPanelsAndJudges);
@@ -235,15 +243,82 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
         showReassignDialog(judge);
     }
 
+    private void handleRandomJudgeAssignment() {
+        if (panelList.isEmpty()) {
+            UIUtils.showToast(this, "Please create panels for this event first!");
+            return;
+        }
+
+        if (judgeList.isEmpty()) {
+            UIUtils.showToast(this, "No judges available to assign!");
+            return;
+        }
+
+        // Random distribution algorithm
+        List<User> shuffledJudges = new ArrayList<>(judgeList);
+        java.util.Collections.shuffle(shuffledJudges);
+
+        Map<String, String> judgeToPanelMap = new HashMap<>();
+        Map<String, List<String>> panelToJudgeNames = new HashMap<>();
+        for (Panel p : panelList) {
+            panelToJudgeNames.put(p.getId(), new ArrayList<>());
+        }
+
+        for (int i = 0; i < shuffledJudges.size(); i++) {
+            User judge = shuffledJudges.get(i);
+            int panelIndex = i % panelList.size();
+            Panel assignedPanel = panelList.get(panelIndex);
+
+            judgeToPanelMap.put(judge.getUid(), assignedPanel.getId());
+            panelToJudgeNames.get(assignedPanel.getId()).add(judge.getName());
+        }
+
+        // Build summary for Admin verification
+        StringBuilder summary = new StringBuilder();
+        summary.append("Random assignment preview across ").append(panelList.size()).append(" panels:\n\n");
+        for (Panel p : panelList) {
+            List<String> names = panelToJudgeNames.get(p.getId());
+            int count = names != null ? names.size() : 0;
+            summary.append("• ").append(p.getName()).append(": ").append(count).append(" judges\n");
+            if (names != null) {
+                for (String name : names) {
+                    summary.append("    - ").append(name).append("\n");
+                }
+            }
+        }
+        summary.append("\nProceed with updating judge panel assignments?");
+
+        new AlertDialog.Builder(this)
+                .setTitle("Confirm Random Judge Assignment")
+                .setMessage(summary.toString())
+                .setPositiveButton("Apply Assignments", (dialog, which) -> {
+                    Dialog loading = UIUtils.showLoadingDialog(this, "Applying random assignments...");
+                    firebaseManager.batchAssignJudges(judgeToPanelMap, panelList, eventId)
+                            .addOnSuccessListener(aVoid -> {
+                                loading.dismiss();
+                                UIUtils.showToast(this, "Judges successfully distributed across panels!");
+                                loadPanelsAndJudges();
+                            })
+                            .addOnFailureListener(e -> {
+                                loading.dismiss();
+                                UIUtils.showToast(this, "Failed to apply assignments: " + e.getMessage());
+                            });
+                })
+                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                .show();
+    }
+
     private void showReassignDialog(User judge) {
         List<String> panelNames = new ArrayList<>();
         panelNames.add("None / Unassigned");
         int currentSelection = 0;
 
+        String currentPanelId = judge.getPanelForEvent(eventId);
+
         for (int i = 0; i < panelList.size(); i++) {
             Panel p = panelList.get(i);
             panelNames.add(p.getName());
-            if (p.getId().equals(judge.getAssignedPanelId())) {
+            if (p.getId().equals(currentPanelId)) {
                 currentSelection = i + 1;
             }
         }
@@ -256,7 +331,7 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
                     dialog.dismiss();
                     
                     Dialog loading = UIUtils.showLoadingDialog(this, "Updating panel assignment...");
-                    firebaseManager.assignJudgeToPanel(judge.getUid(), newPanelId)
+                    firebaseManager.assignJudgeToPanel(judge.getUid(), eventId, newPanelId)
                             .addOnSuccessListener(aVoid -> {
                                 loading.dismiss();
                                 UIUtils.showToast(this, "Panel reassigned successfully");

@@ -28,6 +28,14 @@ public class Panel implements Serializable {
         this.createdAt = createdAt;
     }
 
+    public Panel(String id, String name, String eventId) {
+        this();
+        this.id = id;
+        this.name = name;
+        this.eventId = eventId;
+        this.createdAt = System.currentTimeMillis();
+    }
+
     public String getId() {
         return id;
     }

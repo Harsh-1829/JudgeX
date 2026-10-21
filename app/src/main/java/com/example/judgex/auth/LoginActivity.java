@@ -166,6 +166,11 @@ public class LoginActivity extends AppCompatActivity {
             Intent intent = new Intent(LoginActivity.this, JudgeDashboardActivity.class);
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             startActivity(intent);
+        } else if (user.isTeamLeader()) {
+            UIUtils.showToast(this, "Logged in as Team Leader: " + user.getName());
+            Intent intent = new Intent(LoginActivity.this, com.example.judgex.team.TeamLeaderDashboardActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
         } else {
             firebaseManager.signOut();
             showError("Unauthorized role (" + user.getRole() + "). Access denied.");

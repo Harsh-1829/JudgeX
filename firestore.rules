@@ -7,50 +7,75 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function getUserDoc() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
     function isAdmin() {
-      return isAuthenticated() && 
-             (getUserDoc().data.role == 'ADMIN' || 
-              (request.auth.token.email != null && request.auth.token.email.matches('.*admin.*')));
+      return isAuthenticated() && getUserData().role == 'ADMIN';
+    }
+
+    function isJudge() {
+      return isAuthenticated() && getUserData().role == 'JUDGE';
+    }
+
+    function isTeamLeader() {
+      return isAuthenticated() && getUserData().role == 'TEAM_LEADER';
     }
 
     // Users Collection
     match /users/{userId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAuthenticated();
+      // Admin can create/update any user; users can initialize or update their own profile (preventing privilege escalation)
+      allow create: if isAuthenticated() && (isAdmin() || request.auth.uid == userId);
+      allow update: if isAuthenticated() && 
+                     (isAdmin() || 
+                      (request.auth.uid == userId && request.resource.data.role == resource.data.role));
+      allow delete: if isAdmin();
     }
 
-    // Events Collection
+    // Events Collection (Admins configure; participants read)
     match /events/{eventId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
-    // Panels Collection
+    // Panels Collection (Admin-controlled panels and canonical assignments)
     match /panels/{panelId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
-    // Criteria Collection
+    // Criteria Collection (Admin-defined dynamic rubrics)
     match /criteria/{criterionId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
     // Teams Collection
     match /teams/{teamId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow create, delete: if isAdmin();
+      // Admin can update; Team leader can update team details without changing panel or event assignments
+      allow update: if isAdmin() || 
+                     (isTeamLeader() && 
+                      resource.data.leaderUid == request.auth.uid &&
+                      request.resource.data.panelId == resource.data.panelId &&
+                      request.resource.data.eventId == resource.data.eventId);
     }
 
     // Evaluations Collection
     match /evaluations/{evalId} {
       allow read: if isAuthenticated();
-      // Judges and Admins can submit evaluations; only Admin can delete
-      allow create, update: if isAuthenticated();
+      // Judges and Admins can create evaluations; judgeId must match auth user
+      allow create: if isAuthenticated() && 
+                     (isAdmin() || (isJudge() && request.resource.data.judgeId == request.auth.uid));
+      // Only Admin or the evaluating judge updating a DRAFT can modify; SUBMITTED evaluations cannot be edited by judges
+      allow update: if isAuthenticated() && 
+                     (isAdmin() || 
+                      (isJudge() && 
+                       resource.data.judgeId == request.auth.uid && 
+                       resource.data.status != 'SUBMITTED'));
       allow delete: if isAdmin();
     }
   }

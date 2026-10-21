@@ -23,16 +23,22 @@ public class RankingAdapter extends RecyclerView.Adapter<RankingAdapter.RankingV
 
     private final List<TeamResult> results;
     private final boolean isEventCompletedOrLocked;
+    private final boolean isAnonymousJudging;
     private final OnRankingClickListener listener;
 
-    public RankingAdapter(List<TeamResult> results, boolean isEventCompletedOrLocked, OnRankingClickListener listener) {
+    public RankingAdapter(List<TeamResult> results, boolean isEventCompletedOrLocked, boolean isAnonymousJudging, OnRankingClickListener listener) {
         this.results = results;
         this.isEventCompletedOrLocked = isEventCompletedOrLocked;
+        this.isAnonymousJudging = isAnonymousJudging;
         this.listener = listener;
     }
 
+    public RankingAdapter(List<TeamResult> results, boolean isEventCompletedOrLocked, OnRankingClickListener listener) {
+        this(results, isEventCompletedOrLocked, false, listener);
+    }
+
     public RankingAdapter(List<TeamResult> results, OnRankingClickListener listener) {
-        this(results, false, listener);
+        this(results, false, false, listener);
     }
 
     @NonNull
@@ -49,7 +55,10 @@ public class RankingAdapter extends RecyclerView.Adapter<RankingAdapter.RankingV
         holder.tvRank.setText("#" + item.getRank());
         if (item.getTeam() != null) {
             holder.tvTeamNumber.setText(item.getTeam().getTeamNumber() != null ? item.getTeam().getTeamNumber() : "");
-            holder.tvTeamName.setText(item.getTeam().getTeamName() != null ? item.getTeam().getTeamName() : "Team");
+            String displayName = isAnonymousJudging 
+                    ? "Team #" + item.getTeam().getTeamNumber() 
+                    : (item.getTeam().getTeamName() != null ? item.getTeam().getTeamName() : "Team");
+            holder.tvTeamName.setText(displayName);
             holder.tvProjectTitle.setText(item.getTeam().getProjectTitle() != null ? item.getTeam().getProjectTitle() : "");
         }
 

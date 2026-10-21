@@ -152,6 +152,63 @@ public class FirebaseManager {
         return tcs.getTask();
     }
 
+    /**
+     * Creates a Team Leader user without signing out the currently logged-in Admin,
+     * using an isolated secondary FirebaseApp instance and non-blocking Task completion.
+     */
+    public Task<String> createTeamLeaderAccount(Context context, String email, String password, String name, String teamId) {
+        TaskCompletionSource<String> tcs = new TaskCompletionSource<>();
+        String uniqueAppName = "LeaderCreator_" + System.currentTimeMillis() + "_" + (int)(Math.random() * 10000);
+
+        try {
+            FirebaseOptions options = FirebaseApp.getInstance().getOptions();
+            FirebaseApp secondaryApp = FirebaseApp.initializeApp(context.getApplicationContext(), options, uniqueAppName);
+            FirebaseAuth secondaryAuth = FirebaseAuth.getInstance(secondaryApp);
+
+            secondaryAuth.createUserWithEmailAndPassword(email.trim(), password)
+                    .addOnSuccessListener(authResult -> {
+                        if (authResult.getUser() == null) {
+                            cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                            tcs.setException(new Exception("Failed to create leader authentication record"));
+                            return;
+                        }
+
+                        String newUid = authResult.getUser().getUid();
+                        User leaderUser = new User(newUid, email.trim(), name.trim(), User.ROLE_TEAM_LEADER, "", System.currentTimeMillis());
+                        leaderUser.setAssignedTeamId(teamId);
+
+                        // Save leader user profile in Firestore
+                        db.collection(Constants.COLLECTION_USERS).document(newUid).set(leaderUser)
+                                .addOnSuccessListener(aVoid -> {
+                                    // Update Team record with leaderUid
+                                    if (teamId != null && !teamId.isEmpty()) {
+                                        db.collection(Constants.COLLECTION_TEAMS).document(teamId)
+                                                .update("leaderUid", newUid)
+                                                .addOnCompleteListener(teamTask -> {
+                                                    cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                                                    tcs.setResult(newUid);
+                                                });
+                                    } else {
+                                        cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                                        tcs.setResult(newUid);
+                                    }
+                                })
+                                .addOnFailureListener(e -> {
+                                    cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                                    tcs.setException(e);
+                                });
+                    })
+                    .addOnFailureListener(e -> {
+                        cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                        tcs.setException(e);
+                    });
+        } catch (Exception e) {
+            tcs.setException(e);
+        }
+
+        return tcs.getTask();
+    }
+
     private void cleanUpSecondaryApp(FirebaseApp app, FirebaseAuth auth) {
         try {
             if (auth != null) auth.signOut();
@@ -178,7 +235,10 @@ public class FirebaseManager {
     }
 
     public Task<Void> setEventLockStatus(String eventId, boolean isLocked) {
-        return db.collection(Constants.COLLECTION_EVENTS).document(eventId).update("locked", isLocked);
+        return db.collection(Constants.COLLECTION_EVENTS).document(eventId).update(
+                "locked", isLocked,
+                "status", isLocked ? Event.STATUS_LOCKED : Event.STATUS_ACTIVE
+        );
     }
 
     public Task<DocumentSnapshot> getEvent(String eventId) {
@@ -218,6 +278,10 @@ public class FirebaseManager {
     }
 
     public Task<Void> assignJudgeToPanel(String judgeUid, String panelId) {
+        return assignJudgeToPanel(judgeUid, null, panelId);
+    }
+
+    public Task<Void> assignJudgeToPanel(String judgeUid, String eventId, String panelId) {
         String cleanPanelId = panelId != null ? panelId.trim() : "";
         return db.collection(Constants.COLLECTION_USERS).document(judgeUid)
                 .get()
@@ -229,9 +293,12 @@ public class FirebaseManager {
 
                     WriteBatch batch = db.batch();
 
-                    // 1. Update user assignedPanelId
+                    // 1. Update user assignedPanelId and eventPanelAssignments
                     DocumentReference userRef = db.collection(Constants.COLLECTION_USERS).document(judgeUid);
                     batch.update(userRef, "assignedPanelId", cleanPanelId);
+                    if (eventId != null && !eventId.isEmpty()) {
+                        batch.update(userRef, "eventPanelAssignments." + eventId, cleanPanelId);
+                    }
 
                     // 2. Remove from old panel if changing
                     if (oldPanelId != null && !oldPanelId.isEmpty() && !oldPanelId.equals(cleanPanelId)) {
@@ -247,6 +314,82 @@ public class FirebaseManager {
 
                     return batch.commit();
                 });
+    }
+
+    /**
+     * Atomically batch-assigns multiple judges across panels for an event.
+     */
+    public Task<Void> batchAssignJudges(Map<String, String> judgeToPanelMap, List<Panel> allPanels, String eventId) {
+        WriteBatch batch = db.batch();
+
+        // 1. Clear judges in panels for this event first
+        for (Panel p : allPanels) {
+            DocumentReference pRef = db.collection(Constants.COLLECTION_PANELS).document(p.getId());
+            batch.update(pRef, "judgeIds", new ArrayList<String>());
+        }
+
+        // 2. Add each judge to assigned panel and update user document
+        Map<String, List<String>> panelToJudges = new HashMap<>();
+        for (Map.Entry<String, String> entry : judgeToPanelMap.entrySet()) {
+            String judgeId = entry.getKey();
+            String panelId = entry.getValue();
+
+            if (panelId != null && !panelId.isEmpty()) {
+                if (!panelToJudges.containsKey(panelId)) {
+                    panelToJudges.put(panelId, new ArrayList<>());
+                }
+                panelToJudges.get(panelId).add(judgeId);
+
+                DocumentReference userRef = db.collection(Constants.COLLECTION_USERS).document(judgeId);
+                batch.update(userRef, "assignedPanelId", panelId);
+                if (eventId != null && !eventId.isEmpty()) {
+                    batch.update(userRef, "eventPanelAssignments." + eventId, panelId);
+                }
+            }
+        }
+
+        for (Map.Entry<String, List<String>> pEntry : panelToJudges.entrySet()) {
+            DocumentReference pRef = db.collection(Constants.COLLECTION_PANELS).document(pEntry.getKey());
+            batch.update(pRef, "judgeIds", pEntry.getValue());
+        }
+
+        return batch.commit();
+    }
+
+    /**
+     * Atomically batch-assigns multiple teams across panels.
+     */
+    public Task<Void> batchAssignTeams(Map<String, String> teamToPanelMap, List<Panel> allPanels) {
+        WriteBatch batch = db.batch();
+
+        // Clear teamIds in panels
+        for (Panel p : allPanels) {
+            DocumentReference pRef = db.collection(Constants.COLLECTION_PANELS).document(p.getId());
+            batch.update(pRef, "teamIds", new ArrayList<String>());
+        }
+
+        Map<String, List<String>> panelToTeams = new HashMap<>();
+        for (Map.Entry<String, String> entry : teamToPanelMap.entrySet()) {
+            String teamId = entry.getKey();
+            String panelId = entry.getValue();
+
+            if (panelId != null && !panelId.isEmpty()) {
+                if (!panelToTeams.containsKey(panelId)) {
+                    panelToTeams.put(panelId, new ArrayList<>());
+                }
+                panelToTeams.get(panelId).add(teamId);
+
+                DocumentReference teamRef = db.collection(Constants.COLLECTION_TEAMS).document(teamId);
+                batch.update(teamRef, "panelId", panelId);
+            }
+        }
+
+        for (Map.Entry<String, List<String>> pEntry : panelToTeams.entrySet()) {
+            DocumentReference pRef = db.collection(Constants.COLLECTION_PANELS).document(pEntry.getKey());
+            batch.update(pRef, "teamIds", pEntry.getValue());
+        }
+
+        return batch.commit();
     }
 
     // --- Criteria Operations ---
@@ -312,6 +455,13 @@ public class FirebaseManager {
 
     public Task<DocumentSnapshot> getTeam(String teamId) {
         return db.collection(Constants.COLLECTION_TEAMS).document(teamId).get();
+    }
+
+    public Task<QuerySnapshot> getTeamForLeader(String leaderUid) {
+        return db.collection(Constants.COLLECTION_TEAMS)
+                .whereEqualTo("leaderUid", leaderUid)
+                .limit(1)
+                .get();
     }
 
     // --- Evaluation Operations ---

@@ -63,6 +63,24 @@ public class TeamResult implements Serializable, Comparable<TeamResult> {
         }
     }
 
+    public double getNormalizedScore() {
+        if (maxPossibleScore > 0) {
+            return (averageScore / maxPossibleScore) * 100.0;
+        }
+        return averageScore;
+    }
+
+    public int getPendingEvaluationsCount() {
+        int pending = totalAssignedJudges - evaluationsCount;
+        return Math.max(0, pending);
+    }
+
+    public double getCompletionPercentage() {
+        if (totalAssignedJudges <= 0) return 0.0;
+        double pct = ((double) evaluationsCount / totalAssignedJudges) * 100.0;
+        return Math.min(100.0, pct);
+    }
+
     public Team getTeam() {
         return team;
     }

@@ -6,6 +6,8 @@ import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
@@ -115,10 +117,21 @@ public class EventManagerActivity extends AppCompatActivity implements EventAdap
         TextInputEditText etEventName = view.findViewById(R.id.etEventName);
         TextInputEditText etEventDescription = view.findViewById(R.id.etEventDescription);
 
+        RadioGroup rgScoringType = view.findViewById(R.id.rgScoringType);
+        RadioButton rbScoringWeighted = view.findViewById(R.id.rbScoringWeighted);
+        RadioButton rbScoringRaw = view.findViewById(R.id.rbScoringRaw);
+        com.google.android.material.checkbox.MaterialCheckBox cbAnonymousJudging = view.findViewById(R.id.cbAnonymousJudging);
+
         if (existingEvent != null) {
             tvDialogTitle.setText("Edit Screening Event");
             etEventName.setText(existingEvent.getName());
             etEventDescription.setText(existingEvent.getDescription());
+            if (Event.SCORING_RAW.equalsIgnoreCase(existingEvent.getScoringType())) {
+                rbScoringRaw.setChecked(true);
+            } else {
+                rbScoringWeighted.setChecked(true);
+            }
+            cbAnonymousJudging.setChecked(existingEvent.isAnonymousJudging());
         }
 
         builder.setView(view);
@@ -130,6 +143,8 @@ public class EventManagerActivity extends AppCompatActivity implements EventAdap
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 String name = etEventName.getText() != null ? etEventName.getText().toString().trim() : "";
                 String desc = etEventDescription.getText() != null ? etEventDescription.getText().toString().trim() : "";
+                String scoringType = rbScoringRaw.isChecked() ? Event.SCORING_RAW : Event.SCORING_WEIGHTED;
+                boolean isAnonymous = cbAnonymousJudging.isChecked();
 
                 if (TextUtils.isEmpty(name)) {
                     tilEventName.setError("Event name is required");
@@ -137,18 +152,21 @@ public class EventManagerActivity extends AppCompatActivity implements EventAdap
                 }
 
                 dialog.dismiss();
-                saveEvent(existingEvent, name, desc);
+                saveEvent(existingEvent, name, desc, scoringType, isAnonymous);
             });
         });
         dialog.show();
     }
 
-    private void saveEvent(Event existingEvent, String name, String description) {
+    private void saveEvent(Event existingEvent, String name, String description, String scoringType, boolean isAnonymous) {
         Dialog loadingDialog = UIUtils.showLoadingDialog(this, existingEvent != null ? "Updating event..." : "Creating event...");
 
         if (existingEvent != null) {
             existingEvent.setName(name);
             existingEvent.setDescription(description);
+            existingEvent.setScoringType(scoringType);
+            existingEvent.setAnonymousJudging(isAnonymous);
+
             firebaseManager.updateEvent(existingEvent)
                     .addOnSuccessListener(aVoid -> {
                         loadingDialog.dismiss();
@@ -161,6 +179,9 @@ public class EventManagerActivity extends AppCompatActivity implements EventAdap
                     });
         } else {
             Event newEvent = new Event(null, name, description, Event.STATUS_ACTIVE, false, System.currentTimeMillis());
+            newEvent.setScoringType(scoringType);
+            newEvent.setAnonymousJudging(isAnonymous);
+
             firebaseManager.createEvent(newEvent)
                     .addOnSuccessListener(docRef -> {
                         loadingDialog.dismiss();

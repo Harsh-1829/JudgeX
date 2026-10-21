@@ -89,6 +89,11 @@
             android:name=".qr.QRViewActivity"
             android:exported="false" />
 
+        <!-- Team Leader Module -->
+        <activity
+            android:name=".team.TeamLeaderDashboardActivity"
+            android:exported="false" />
+
         <!-- ZXing Scanner Activity -->
         <activity
             android:name="com.journeyapps.barcodescanner.CaptureActivity"

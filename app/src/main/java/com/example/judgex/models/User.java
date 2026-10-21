@@ -5,6 +5,7 @@ import java.io.Serializable;
 public class User implements Serializable {
     public static final String ROLE_ADMIN = "ADMIN";
     public static final String ROLE_JUDGE = "JUDGE";
+    public static final String ROLE_TEAM_LEADER = "TEAM_LEADER";
 
     public static final String STATUS_ACTIVE = "ACTIVE";
     public static final String STATUS_INACTIVE = "INACTIVE";
@@ -12,8 +13,10 @@ public class User implements Serializable {
     private String uid;
     private String email;
     private String name;
-    private String role; // ADMIN or JUDGE
-    private String assignedPanelId;
+    private String role; // ADMIN, JUDGE, or TEAM_LEADER
+    private String assignedPanelId; // Global/default panel ID for backward compatibility
+    private java.util.Map<String, String> eventPanelAssignments; // eventId -> panelId
+    private String assignedTeamId; // For Team Leader: associated teamId
     private String status; // ACTIVE or INACTIVE
     private boolean active;
     private long createdAt;
@@ -21,6 +24,7 @@ public class User implements Serializable {
     public User() {
         this.active = true;
         this.status = STATUS_ACTIVE;
+        this.eventPanelAssignments = new java.util.HashMap<>();
     }
 
     public User(String uid, String email, String name, String role, String assignedPanelId, long createdAt) {
@@ -29,9 +33,22 @@ public class User implements Serializable {
         this.name = name;
         this.role = role;
         this.assignedPanelId = assignedPanelId;
+        this.eventPanelAssignments = new java.util.HashMap<>();
+        if (assignedPanelId != null && !assignedPanelId.isEmpty()) {
+            // Can be mapped once event is known
+        }
         this.status = STATUS_ACTIVE;
         this.active = true;
         this.createdAt = createdAt;
+    }
+
+    public User(String uid, String name, String email, String role) {
+        this();
+        this.uid = uid;
+        this.name = name;
+        this.email = email;
+        this.role = role;
+        this.createdAt = System.currentTimeMillis();
     }
 
     public String getUid() {
@@ -74,6 +91,47 @@ public class User implements Serializable {
         this.assignedPanelId = assignedPanelId;
     }
 
+    public java.util.Map<String, String> getEventPanelAssignments() {
+        if (eventPanelAssignments == null) eventPanelAssignments = new java.util.HashMap<>();
+        return eventPanelAssignments;
+    }
+
+    public void setEventPanelAssignments(java.util.Map<String, String> eventPanelAssignments) {
+        this.eventPanelAssignments = eventPanelAssignments;
+    }
+
+    public String getPanelForEvent(String eventId) {
+        if (eventPanelAssignments != null && !eventPanelAssignments.isEmpty()) {
+            if (eventId != null && eventPanelAssignments.containsKey(eventId)) {
+                return eventPanelAssignments.get(eventId);
+            }
+            return null; // Event-aware user has no assignment for this event
+        }
+        return assignedPanelId; // Fallback only for legacy accounts without multi-event mappings
+    }
+
+    public void setPanelForEvent(String eventId, String panelId) {
+        if (eventPanelAssignments == null) eventPanelAssignments = new java.util.HashMap<>();
+        if (eventId != null) {
+            if (panelId != null && !panelId.isEmpty()) {
+                eventPanelAssignments.put(eventId, panelId);
+            } else {
+                eventPanelAssignments.remove(eventId);
+            }
+        }
+        if (this.assignedPanelId == null || this.assignedPanelId.isEmpty()) {
+            this.assignedPanelId = panelId;
+        }
+    }
+
+    public String getAssignedTeamId() {
+        return assignedTeamId;
+    }
+
+    public void setAssignedTeamId(String assignedTeamId) {
+        this.assignedTeamId = assignedTeamId;
+    }
+
     public String getStatus() {
         return status != null ? status : STATUS_ACTIVE;
     }
@@ -106,5 +164,9 @@ public class User implements Serializable {
 
     public boolean isJudge() {
         return ROLE_JUDGE.equalsIgnoreCase(this.role);
+    }
+
+    public boolean isTeamLeader() {
+        return ROLE_TEAM_LEADER.equalsIgnoreCase(this.role);
     }
 }

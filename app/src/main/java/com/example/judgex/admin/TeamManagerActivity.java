@@ -34,8 +34,11 @@ import com.google.firebase.firestore.DocumentSnapshot;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class TeamManagerActivity extends AppCompatActivity implements TeamAdapter.OnTeamClickListener {
@@ -81,6 +84,14 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
         }
 
         toolbar.setNavigationOnClickListener(v -> finish());
+        toolbar.inflateMenu(R.menu.menu_team_manager);
+        toolbar.setOnMenuItemClickListener(item -> {
+            if (item.getItemId() == R.id.action_random_assign_teams) {
+                handleRandomTeamAssignment();
+                return true;
+            }
+            return false;
+        });
 
         recyclerViewTeams.setLayoutManager(new LinearLayoutManager(this));
         adapter = new TeamAdapter(teamList, evaluatedTeamIds, this);
@@ -172,6 +183,7 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
         TextInputLayout tilCategory = view.findViewById(R.id.tilCategory);
         TextInputLayout tilLeaderName = view.findViewById(R.id.tilLeaderName);
         TextInputLayout tilLeaderEmail = view.findViewById(R.id.tilLeaderEmail);
+        TextInputLayout tilLeaderPassword = view.findViewById(R.id.tilLeaderPassword);
         TextInputLayout tilMemberCount = view.findViewById(R.id.tilMemberCount);
 
         TextInputEditText etTeamNumber = view.findViewById(R.id.etTeamNumber);
@@ -180,6 +192,7 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
         TextInputEditText etCategory = view.findViewById(R.id.etCategory);
         TextInputEditText etLeaderName = view.findViewById(R.id.etLeaderName);
         TextInputEditText etLeaderEmail = view.findViewById(R.id.etLeaderEmail);
+        TextInputEditText etLeaderPassword = view.findViewById(R.id.etLeaderPassword);
         TextInputEditText etMemberCount = view.findViewById(R.id.etMemberCount);
         Spinner spinnerPanels = view.findViewById(R.id.spinnerPanels);
 
@@ -221,6 +234,7 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
                 String category = etCategory.getText() != null ? etCategory.getText().toString().trim() : "";
                 String leader = etLeaderName.getText() != null ? etLeaderName.getText().toString().trim() : "";
                 String email = etLeaderEmail.getText() != null ? etLeaderEmail.getText().toString().trim() : "";
+                String password = etLeaderPassword.getText() != null ? etLeaderPassword.getText().toString().trim() : "";
                 String countStr = etMemberCount.getText() != null ? etMemberCount.getText().toString().trim() : "4";
 
                 if (TextUtils.isEmpty(number)) {
@@ -235,6 +249,10 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
                     tilProjectTitle.setError("Project title is required");
                     return;
                 }
+                if (!password.isEmpty() && password.length() < 6) {
+                    tilLeaderPassword.setError("Password must be at least 6 characters");
+                    return;
+                }
 
                 int memberCount = 4;
                 try {
@@ -244,14 +262,14 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
                 String panelId = panelList.get(spinnerPanels.getSelectedItemPosition()).getId();
 
                 dialog.dismiss();
-                saveTeam(existingTeam, number, name, title, category, leader, email, memberCount, panelId);
+                saveTeam(existingTeam, number, name, title, category, leader, email, password, memberCount, panelId);
             });
         });
         dialog.show();
     }
 
     private void saveTeam(Team existingTeam, String number, String name, String title, 
-                          String category, String leader, String email, int memberCount, String panelId) {
+                          String category, String leader, String email, String password, int memberCount, String panelId) {
         Dialog loadingDialog = UIUtils.showLoadingDialog(this, existingTeam != null ? "Updating team..." : "Registering team...");
 
         if (existingTeam != null) {
@@ -267,9 +285,23 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
 
             firebaseManager.updateTeam(existingTeam)
                     .addOnSuccessListener(aVoid -> {
-                        loadingDialog.dismiss();
-                        UIUtils.showToast(this, "Team updated successfully");
-                        loadPanelsAndTeams();
+                        if (!password.isEmpty() && !email.isEmpty()) {
+                            firebaseManager.createTeamLeaderAccount(this, email, password, leader, existingTeam.getId())
+                                    .addOnSuccessListener(uid -> {
+                                        loadingDialog.dismiss();
+                                        UIUtils.showToast(this, "Team updated and leader login provisioned!");
+                                        loadPanelsAndTeams();
+                                    })
+                                    .addOnFailureListener(e -> {
+                                        loadingDialog.dismiss();
+                                        UIUtils.showToast(this, "Team updated, but leader login failed: " + e.getMessage());
+                                        loadPanelsAndTeams();
+                                    });
+                        } else {
+                            loadingDialog.dismiss();
+                            UIUtils.showToast(this, "Team updated successfully");
+                            loadPanelsAndTeams();
+                        }
                     })
                     .addOnFailureListener(e -> {
                         loadingDialog.dismiss();
@@ -283,15 +315,91 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
                         newTeam.setQrCodeData(generateQRDataPayload(docRef.getId(), number, name, eventId, panelId));
                         firebaseManager.updateTeam(newTeam);
 
-                        loadingDialog.dismiss();
-                        UIUtils.showToast(this, "Team registered: " + name);
-                        loadPanelsAndTeams();
+                        if (!password.isEmpty() && !email.isEmpty()) {
+                            firebaseManager.createTeamLeaderAccount(this, email, password, leader, docRef.getId())
+                                    .addOnSuccessListener(uid -> {
+                                        loadingDialog.dismiss();
+                                        UIUtils.showToast(this, "Team registered and leader login provisioned: " + name);
+                                        loadPanelsAndTeams();
+                                    })
+                                    .addOnFailureListener(e -> {
+                                        loadingDialog.dismiss();
+                                        UIUtils.showToast(this, "Team registered, but leader login failed: " + e.getMessage());
+                                        loadPanelsAndTeams();
+                                    });
+                        } else {
+                            loadingDialog.dismiss();
+                            UIUtils.showToast(this, "Team registered: " + name);
+                            loadPanelsAndTeams();
+                        }
                     })
                     .addOnFailureListener(e -> {
                         loadingDialog.dismiss();
                         UIUtils.showToast(this, "Failed to create team: " + e.getMessage());
                     });
         }
+    }
+
+    private void handleRandomTeamAssignment() {
+        if (panelList.isEmpty()) {
+            UIUtils.showToast(this, "Please create panels for this event first!");
+            return;
+        }
+
+        if (teamList.isEmpty()) {
+            UIUtils.showToast(this, "No teams available to assign!");
+            return;
+        }
+
+        // Random distribution algorithm across panels
+        List<Team> shuffledTeams = new ArrayList<>(teamList);
+        java.util.Collections.shuffle(shuffledTeams);
+
+        Map<String, String> teamToPanelMap = new HashMap<>();
+        Map<String, List<String>> panelToTeamNumbers = new HashMap<>();
+        for (Panel p : panelList) {
+            panelToTeamNumbers.put(p.getId(), new ArrayList<>());
+        }
+
+        for (int i = 0; i < shuffledTeams.size(); i++) {
+            Team team = shuffledTeams.get(i);
+            int panelIndex = i % panelList.size();
+            Panel assignedPanel = panelList.get(panelIndex);
+
+            teamToPanelMap.put(team.getId(), assignedPanel.getId());
+            panelToTeamNumbers.get(assignedPanel.getId()).add(team.getTeamNumber());
+        }
+
+        // Build preview summary
+        StringBuilder summary = new StringBuilder();
+        summary.append("Random distribution preview of ").append(teamList.size())
+                .append(" teams across ").append(panelList.size()).append(" panels:\n\n");
+
+        for (Panel p : panelList) {
+            List<String> nums = panelToTeamNumbers.get(p.getId());
+            int count = nums != null ? nums.size() : 0;
+            summary.append("• ").append(p.getName()).append(": ").append(count).append(" teams\n");
+        }
+        summary.append("\nProceed with updating panel assignments for all teams?");
+
+        new AlertDialog.Builder(this)
+                .setTitle("Confirm Random Team Distribution")
+                .setMessage(summary.toString())
+                .setPositiveButton("Distribute Teams", (dialog, which) -> {
+                    Dialog loading = UIUtils.showLoadingDialog(this, "Distributing teams across panels...");
+                    firebaseManager.batchAssignTeams(teamToPanelMap, panelList)
+                            .addOnSuccessListener(aVoid -> {
+                                loading.dismiss();
+                                UIUtils.showToast(this, "Teams successfully distributed across panels!");
+                                loadPanelsAndTeams();
+                            })
+                            .addOnFailureListener(e -> {
+                                loading.dismiss();
+                                UIUtils.showToast(this, "Failed to distribute teams: " + e.getMessage());
+                            });
+                })
+                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                .show();
     }
 
     private String generateQRDataPayload(String teamId, String teamNumber, String teamName, String eventId, String panelId) {
@@ -310,7 +418,60 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
 
     @Override
     public void onTeamClick(Team team) {
-        showAddEditTeamDialog(team);
+        String[] options = {"Edit Team Details", "Reassign Panel", "View / Share QR Pass"};
+        new AlertDialog.Builder(this)
+                .setTitle(team.getTeamNumber() + " - " + team.getTeamName())
+                .setItems(options, (dialog, which) -> {
+                    switch (which) {
+                        case 0:
+                            showAddEditTeamDialog(team);
+                            break;
+                        case 1:
+                            showReassignTeamPanelDialog(team);
+                            break;
+                        case 2:
+                            onQRClick(team);
+                            break;
+                    }
+                })
+                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                .show();
+    }
+
+    private void showReassignTeamPanelDialog(Team team) {
+        List<String> panelNames = new ArrayList<>();
+        int selectedIndex = 0;
+        for (int i = 0; i < panelList.size(); i++) {
+            Panel p = panelList.get(i);
+            panelNames.add(p.getName());
+            if (p.getId().equals(team.getPanelId())) {
+                selectedIndex = i;
+            }
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Reassign Panel for " + team.getTeamNumber())
+                .setSingleChoiceItems(panelNames.toArray(new String[0]), selectedIndex, (dialog, which) -> {
+                    String newPanelId = panelList.get(which).getId();
+                    dialog.dismiss();
+
+                    Dialog loading = UIUtils.showLoadingDialog(this, "Updating panel assignment...");
+                    team.setPanelId(newPanelId);
+                    team.setQrCodeData(generateQRDataPayload(team.getId(), team.getTeamNumber(), team.getTeamName(), eventId, newPanelId));
+
+                    firebaseManager.updateTeam(team)
+                            .addOnSuccessListener(aVoid -> {
+                                loading.dismiss();
+                                UIUtils.showToast(this, "Team reassigned to " + panelList.get(which).getName());
+                                loadPanelsAndTeams();
+                            })
+                            .addOnFailureListener(e -> {
+                                loading.dismiss();
+                                UIUtils.showToast(this, "Failed to reassign team: " + e.getMessage());
+                            });
+                })
+                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                .show();
     }
 
     @Override

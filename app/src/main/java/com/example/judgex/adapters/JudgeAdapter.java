@@ -23,12 +23,18 @@ public class JudgeAdapter extends RecyclerView.Adapter<JudgeAdapter.JudgeViewHol
 
     private final List<User> judgeList;
     private final Map<String, Panel> panelMap; // panelId -> Panel
+    private final String eventId;
     private final OnJudgeClickListener listener;
 
-    public JudgeAdapter(List<User> judgeList, Map<String, Panel> panelMap, OnJudgeClickListener listener) {
+    public JudgeAdapter(List<User> judgeList, Map<String, Panel> panelMap, String eventId, OnJudgeClickListener listener) {
         this.judgeList = judgeList;
         this.panelMap = panelMap;
+        this.eventId = eventId;
         this.listener = listener;
+    }
+
+    public JudgeAdapter(List<User> judgeList, Map<String, Panel> panelMap, OnJudgeClickListener listener) {
+        this(judgeList, panelMap, null, listener);
     }
 
     @NonNull
@@ -49,7 +55,7 @@ public class JudgeAdapter extends RecyclerView.Adapter<JudgeAdapter.JudgeViewHol
                 : "J";
         holder.tvJudgeAvatar.setText(initial);
 
-        String panelId = judge.getAssignedPanelId();
+        String panelId = eventId != null ? judge.getPanelForEvent(eventId) : judge.getAssignedPanelId();
         if (panelId != null && !panelId.isEmpty() && panelMap != null && panelMap.containsKey(panelId)) {
             Panel panel = panelMap.get(panelId);
             holder.tvJudgePanelBadge.setText(panel != null ? panel.getName() : "Assigned");

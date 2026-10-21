@@ -85,8 +85,8 @@ public class ResultsRankingActivity extends AppCompatActivity implements Ranking
 
         toolbar.setNavigationOnClickListener(v -> finish());
 
-        recyclerViewRankings.setLayoutManager(new LinearLayoutManager(this));
-        adapter = new RankingAdapter(filteredResults, isFinal, this);
+        boolean isAnonymous = currentEvent != null && currentEvent.isAnonymousJudging();
+        adapter = new RankingAdapter(filteredResults, isFinal, isAnonymous, this);
         recyclerViewRankings.setAdapter(adapter);
 
         swipeRefreshLayout.setOnRefreshListener(this::loadPanelsAndRankings);
