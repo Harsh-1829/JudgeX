@@ -23,13 +23,19 @@ public class TeamAdapter extends RecyclerView.Adapter<TeamAdapter.TeamViewHolder
     }
 
     private final List<Team> teamList;
-    private final Set<String> evaluatedTeamIds; // teams evaluated by current judge or completed
+    private final Set<String> evaluatedTeamIds; // teams evaluated and submitted
+    private final Set<String> draftTeamIds; // teams with saved in-progress draft
     private final OnTeamClickListener listener;
 
-    public TeamAdapter(List<Team> teamList, Set<String> evaluatedTeamIds, OnTeamClickListener listener) {
+    public TeamAdapter(List<Team> teamList, Set<String> evaluatedTeamIds, Set<String> draftTeamIds, OnTeamClickListener listener) {
         this.teamList = teamList;
         this.evaluatedTeamIds = evaluatedTeamIds;
+        this.draftTeamIds = draftTeamIds;
         this.listener = listener;
+    }
+
+    public TeamAdapter(List<Team> teamList, Set<String> evaluatedTeamIds, OnTeamClickListener listener) {
+        this(teamList, evaluatedTeamIds, null, listener);
     }
 
     @NonNull
@@ -54,10 +60,14 @@ public class TeamAdapter extends RecyclerView.Adapter<TeamAdapter.TeamViewHolder
             holder.tvEvaluationStatus.setText("EVALUATED");
             holder.tvEvaluationStatus.setBackgroundResource(R.drawable.bg_badge_success);
             holder.tvEvaluationStatus.setTextColor(holder.itemView.getContext().getResources().getColor(R.color.success));
-        } else {
-            holder.tvEvaluationStatus.setText("PENDING");
+        } else if (draftTeamIds != null && draftTeamIds.contains(team.getId())) {
+            holder.tvEvaluationStatus.setText("DRAFT");
             holder.tvEvaluationStatus.setBackgroundResource(R.drawable.bg_badge_pending);
             holder.tvEvaluationStatus.setTextColor(holder.itemView.getContext().getResources().getColor(R.color.warning));
+        } else {
+            holder.tvEvaluationStatus.setText("PENDING");
+            holder.tvEvaluationStatus.setBackgroundResource(R.drawable.bg_badge_judge);
+            holder.tvEvaluationStatus.setTextColor(holder.itemView.getContext().getResources().getColor(R.color.text_secondary));
         }
 
         holder.btnViewQR.setOnClickListener(v -> {

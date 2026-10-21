@@ -17,6 +17,8 @@ public class User implements Serializable {
     private String assignedPanelId; // Global/default panel ID for backward compatibility
     private java.util.Map<String, String> eventPanelAssignments; // eventId -> panelId
     private String assignedTeamId; // For Team Leader: associated teamId
+    private String organizationId; // Multi-college tenant isolation
+    private String organizationName;
     private String status; // ACTIVE or INACTIVE
     private boolean active;
     private long createdAt;
@@ -168,5 +170,21 @@ public class User implements Serializable {
 
     public boolean isTeamLeader() {
         return ROLE_TEAM_LEADER.equalsIgnoreCase(this.role);
+    }
+
+    public String getOrganizationId() {
+        return organizationId;
+    }
+
+    public void setOrganizationId(String organizationId) {
+        this.organizationId = organizationId;
+    }
+
+    public String getOrganizationName() {
+        return organizationName != null ? organizationName : "Institution";
+    }
+
+    public void setOrganizationName(String organizationName) {
+        this.organizationName = organizationName;
     }
 }

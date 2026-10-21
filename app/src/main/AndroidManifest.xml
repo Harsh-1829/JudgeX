@@ -39,6 +39,10 @@
             android:name=".auth.LoginActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".auth.RegisterAdminActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
 
         <!-- Admin Module -->
         <activity
@@ -46,6 +50,9 @@
             android:exported="false" />
         <activity
             android:name=".admin.EventManagerActivity"
+            android:exported="false" />
+        <activity
+            android:name=".admin.EventDetailActivity"
             android:exported="false" />
         <activity
             android:name=".admin.PanelManagerActivity"

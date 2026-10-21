@@ -74,10 +74,12 @@ public class EvaluationCriteriaAdapter extends RecyclerView.Adapter<EvaluationCr
                         ? criterion.getDescription()
                         : "Grade this parameter based on presentation quality."
         );
-        holder.tvMaxMarksBadge.setText(String.format("Max: %.0f", criterion.getMaxMarks()));
+        holder.tvMaxMarksBadge.setText(String.format("Max: %.0f marks", criterion.getMaxMarks()));
         holder.tvWeightBadge.setText(String.format("Weight: %.0f%%", criterion.getWeight()));
 
-        holder.etScore.setHint(String.format("Enter mark (0 - %.0f)", criterion.getMaxMarks()));
+        holder.tilScore.setHint(String.format("Award Score (0 - %.0f)", criterion.getMaxMarks()));
+        holder.tilScore.setHelperText(String.format("Enter mark between 0.0 and %.0f", criterion.getMaxMarks()));
+        holder.etScore.setHint(null);
 
         // Remove old watchers if recycling
         if (holder.scoreWatcher != null) {

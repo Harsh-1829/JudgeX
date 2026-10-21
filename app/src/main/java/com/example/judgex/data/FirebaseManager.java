@@ -5,6 +5,7 @@ import android.content.Context;
 import com.example.judgex.models.Criterion;
 import com.example.judgex.models.Evaluation;
 import com.example.judgex.models.Event;
+import com.example.judgex.models.Organization;
 import com.example.judgex.models.Panel;
 import com.example.judgex.models.Team;
 import com.example.judgex.models.User;
@@ -514,6 +515,29 @@ public class FirebaseManager {
     public Task<QuerySnapshot> getEvaluationsByJudge(String judgeId) {
         return db.collection(Constants.COLLECTION_EVALUATIONS)
                 .whereEqualTo("judgeId", judgeId)
+                .get();
+    }
+
+    public CollectionReference getOrganizationsCollection() {
+        return db.collection(Constants.COLLECTION_ORGANIZATIONS);
+    }
+
+    public Task<DocumentSnapshot> getOrganization(String orgId) {
+        return db.collection(Constants.COLLECTION_ORGANIZATIONS).document(orgId).get();
+    }
+
+    public Task<Void> saveOrganization(Organization organization) {
+        return db.collection(Constants.COLLECTION_ORGANIZATIONS).document(organization.getId()).set(organization);
+    }
+
+    public Task<QuerySnapshot> getEventsForOrganization(String orgId) {
+        if (orgId != null && !orgId.isEmpty()) {
+            return db.collection(Constants.COLLECTION_EVENTS)
+                    .whereEqualTo("organizationId", orgId)
+                    .get();
+        }
+        return db.collection(Constants.COLLECTION_EVENTS)
+                .orderBy("createdAt", Query.Direction.DESCENDING)
                 .get();
     }
 }

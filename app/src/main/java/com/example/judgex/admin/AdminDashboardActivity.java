@@ -1,11 +1,17 @@
 package com.example.judgex.admin;
 
+import android.app.Dialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.text.TextUtils;
+import android.view.LayoutInflater;
 import android.view.View;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.TextView;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
@@ -18,19 +24,21 @@ import com.example.judgex.utils.Constants;
 import com.example.judgex.utils.UIUtils;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.checkbox.MaterialCheckBox;
+import com.google.android.material.textfield.TextInputEditText;
+import com.google.android.material.textfield.TextInputLayout;
 import com.google.firebase.firestore.DocumentSnapshot;
-import com.google.firebase.firestore.Query;
 
 public class AdminDashboardActivity extends AppCompatActivity {
 
     private SwipeRefreshLayout swipeRefreshLayout;
-    private TextView tvAdminEmail, tvActiveEventName, tvEventLockStatus;
-    private TextView tvCountPanels, tvCountTeams, tvCountJudges, tvCountEvaluations;
-    private MaterialButton btnToggleLock, btnManageEvents, btnLogout;
-    private MaterialCardView cardPanels, cardJudges, cardTeams, cardCriteria, cardProgress, cardRankings;
+    private TextView tvOrgName, tvAdminEmail;
+    private TextView tvCountTotalEvents, tvCountActiveEvents, tvCountUpcomingEvents, tvCountCompletedEvents;
+    private MaterialButton btnLogout, btnManageEvents;
+    private MaterialCardView cardEventsHub, cardCreateEvent, cardOrgSettings;
 
     private final FirebaseManager firebaseManager = FirebaseManager.getInstance();
-    private Event activeEvent;
+    private User currentAdmin;
     private SharedPreferences prefs;
 
     @Override
@@ -42,43 +50,31 @@ public class AdminDashboardActivity extends AppCompatActivity {
 
         initViews();
         setupClickListeners();
-        loadActiveEventAndData();
+        loadAdminProfileAndMetrics();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        loadActiveEventAndData();
+        loadAdminProfileAndMetrics();
     }
 
     private void initViews() {
         swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout);
+        tvOrgName = findViewById(R.id.tvOrgName);
         tvAdminEmail = findViewById(R.id.tvAdminEmail);
-        tvActiveEventName = findViewById(R.id.tvActiveEventName);
-        tvEventLockStatus = findViewById(R.id.tvEventLockStatus);
-        tvCountPanels = findViewById(R.id.tvCountPanels);
-        tvCountTeams = findViewById(R.id.tvCountTeams);
-        tvCountJudges = findViewById(R.id.tvCountJudges);
-        tvCountEvaluations = findViewById(R.id.tvCountEvaluations);
-        btnToggleLock = findViewById(R.id.btnToggleLock);
-        btnManageEvents = findViewById(R.id.btnManageEvents);
+        tvCountTotalEvents = findViewById(R.id.tvCountTotalEvents);
+        tvCountActiveEvents = findViewById(R.id.tvCountActiveEvents);
+        tvCountUpcomingEvents = findViewById(R.id.tvCountUpcomingEvents);
+        tvCountCompletedEvents = findViewById(R.id.tvCountCompletedEvents);
+
         btnLogout = findViewById(R.id.btnLogout);
+        btnManageEvents = findViewById(R.id.btnManageEvents);
+        cardEventsHub = findViewById(R.id.cardEventsHub);
+        cardCreateEvent = findViewById(R.id.cardCreateEvent);
+        cardOrgSettings = findViewById(R.id.cardOrgSettings);
 
-        cardPanels = findViewById(R.id.cardPanels);
-        cardJudges = findViewById(R.id.cardJudges);
-        cardTeams = findViewById(R.id.cardTeams);
-        cardCriteria = findViewById(R.id.cardCriteria);
-        cardProgress = findViewById(R.id.cardProgress);
-        cardRankings = findViewById(R.id.cardRankings);
-
-        User profile = firebaseManager.getCurrentUserProfile();
-        if (profile != null && profile.getEmail() != null) {
-            tvAdminEmail.setText(profile.getEmail());
-        } else if (firebaseManager.getCurrentFirebaseUser() != null) {
-            tvAdminEmail.setText(firebaseManager.getCurrentFirebaseUser().getEmail());
-        }
-
-        swipeRefreshLayout.setOnRefreshListener(this::loadActiveEventAndData);
+        swipeRefreshLayout.setOnRefreshListener(this::loadAdminProfileAndMetrics);
     }
 
     private void setupClickListeners() {
@@ -92,165 +88,170 @@ public class AdminDashboardActivity extends AppCompatActivity {
             });
         });
 
-        btnManageEvents.setOnClickListener(v -> {
+        View.OnClickListener openEvents = v -> {
             Intent intent = new Intent(AdminDashboardActivity.this, EventManagerActivity.class);
             startActivity(intent);
-        });
+        };
+        cardEventsHub.setOnClickListener(openEvents);
+        btnManageEvents.setOnClickListener(openEvents);
 
-        btnToggleLock.setOnClickListener(v -> toggleEventLock());
-
-        cardPanels.setOnClickListener(v -> navigateIfEventSelected(PanelManagerActivity.class));
-        cardJudges.setOnClickListener(v -> navigateIfEventSelected(JudgeManagerActivity.class));
-        cardTeams.setOnClickListener(v -> navigateIfEventSelected(TeamManagerActivity.class));
-        cardCriteria.setOnClickListener(v -> navigateIfEventSelected(CriteriaManagerActivity.class));
-        cardProgress.setOnClickListener(v -> navigateIfEventSelected(EvaluationProgressActivity.class));
-        cardRankings.setOnClickListener(v -> navigateIfEventSelected(ResultsRankingActivity.class));
+        cardCreateEvent.setOnClickListener(v -> showCreateEventDialog());
+        cardOrgSettings.setOnClickListener(v -> showOrganizationDetailsDialog());
     }
 
-    private void navigateIfEventSelected(Class<?> activityClass) {
-        if (activeEvent == null) {
-            UIUtils.showToast(this, "Please create or select an active event first!");
-            startActivity(new Intent(AdminDashboardActivity.this, EventManagerActivity.class));
+    private void loadAdminProfileAndMetrics() {
+        swipeRefreshLayout.setRefreshing(true);
+        if (firebaseManager.getCurrentFirebaseUser() == null) {
+            startActivity(new Intent(this, LoginActivity.class));
+            finish();
             return;
         }
-        Intent intent = new Intent(AdminDashboardActivity.this, activityClass);
-        intent.putExtra(Constants.EXTRA_EVENT, activeEvent);
-        intent.putExtra(Constants.EXTRA_EVENT_ID, activeEvent.getId());
-        startActivity(intent);
-    }
 
-    private void loadActiveEventAndData() {
-        swipeRefreshLayout.setRefreshing(true);
-        String savedEventId = prefs.getString(Constants.PREF_ACTIVE_EVENT_ID, null);
+        String uid = firebaseManager.getCurrentFirebaseUser().getUid();
+        firebaseManager.fetchUserProfile(uid)
+                .addOnSuccessListener(doc -> {
+                    if (doc.exists()) {
+                        currentAdmin = doc.toObject(User.class);
+                        if (currentAdmin != null) {
+                            currentAdmin.setUid(doc.getId());
+                            firebaseManager.setCurrentUserProfile(currentAdmin);
 
-        if (savedEventId != null) {
-            firebaseManager.getEvent(savedEventId)
-                    .addOnSuccessListener(doc -> {
-                        if (doc.exists()) {
-                            activeEvent = doc.toObject(Event.class);
-                            if (activeEvent != null) {
-                                activeEvent.setId(doc.getId());
-                                updateActiveEventUI();
-                                loadDashboardMetrics();
-                                return;
+                            String orgName = currentAdmin.getOrganizationName();
+                            if (orgName == null || orgName.isEmpty()) {
+                                orgName = "JudgeX Institution";
                             }
-                        }
-                        fetchFallbackEvent();
-                    })
-                    .addOnFailureListener(e -> fetchFallbackEvent());
-        } else {
-            fetchFallbackEvent();
-        }
-    }
+                            tvOrgName.setText(orgName);
+                            tvAdminEmail.setText((currentAdmin.getName() != null ? currentAdmin.getName() + " • " : "") + currentAdmin.getEmail());
 
-    private void fetchFallbackEvent() {
-        firebaseManager.getEventsCollection()
-                .orderBy("createdAt", Query.Direction.DESCENDING)
-                .limit(1)
-                .get()
-                .addOnSuccessListener(querySnapshot -> {
-                    if (!querySnapshot.isEmpty()) {
-                        DocumentSnapshot doc = querySnapshot.getDocuments().get(0);
-                        activeEvent = doc.toObject(Event.class);
-                        if (activeEvent != null) {
-                            activeEvent.setId(doc.getId());
-                            prefs.edit().putString(Constants.PREF_ACTIVE_EVENT_ID, activeEvent.getId()).apply();
-                            updateActiveEventUI();
-                            loadDashboardMetrics();
+                            loadEventsMetrics(currentAdmin.getOrganizationId());
                             return;
                         }
                     }
-                    // No event found in system
-                    activeEvent = null;
-                    tvActiveEventName.setText("No Active Event Found");
-                    tvEventLockStatus.setText("N/A");
-                    btnToggleLock.setEnabled(false);
-                    swipeRefreshLayout.setRefreshing(false);
+                    loadEventsMetrics(null);
                 })
                 .addOnFailureListener(e -> {
-                    swipeRefreshLayout.setRefreshing(false);
-                    UIUtils.showToast(this, "Failed to load events: " + e.getMessage());
+                    loadEventsMetrics(null);
                 });
     }
 
-    private void updateActiveEventUI() {
-        if (activeEvent == null) return;
+    private void loadEventsMetrics(String orgId) {
+        firebaseManager.getEventsForOrganization(orgId)
+                .addOnSuccessListener(querySnapshot -> {
+                    int total = querySnapshot.size();
+                    int active = 0;
+                    int upcoming = 0;
+                    int completed = 0;
 
-        tvActiveEventName.setText(activeEvent.getName());
-        btnToggleLock.setEnabled(true);
-
-        if (activeEvent.isLocked()) {
-            tvEventLockStatus.setText("EVALUATIONS LOCKED");
-            tvEventLockStatus.setBackgroundResource(R.drawable.bg_badge_locked);
-            tvEventLockStatus.setTextColor(getResources().getColor(R.color.danger));
-            btnToggleLock.setText("🔓 Unlock Evaluations");
-        } else {
-            tvEventLockStatus.setText("OPEN FOR EVALUATION");
-            tvEventLockStatus.setBackgroundResource(R.drawable.bg_badge_success);
-            tvEventLockStatus.setTextColor(getResources().getColor(R.color.success));
-            btnToggleLock.setText("🔒 Lock Evaluations");
-        }
-    }
-
-    private void toggleEventLock() {
-        if (activeEvent == null) return;
-        boolean newLockStatus = !activeEvent.isLocked();
-        String actionName = newLockStatus ? "Lock" : "Unlock";
-
-        UIUtils.showConfirmationDialog(this, actionName + " Evaluations",
-                "Are you sure you want to " + actionName.toLowerCase() + " evaluations for " + activeEvent.getName() + "?",
-                actionName, () -> {
-                    firebaseManager.setEventLockStatus(activeEvent.getId(), newLockStatus)
-                            .addOnSuccessListener(aVoid -> {
-                                activeEvent.setLocked(newLockStatus);
-                                updateActiveEventUI();
-                                UIUtils.showToast(this, "Evaluations are now " + (newLockStatus ? "locked" : "unlocked"));
-                            })
-                            .addOnFailureListener(e -> UIUtils.showToast(this, "Failed to update lock status: " + e.getMessage()));
-                });
-    }
-
-    private void loadDashboardMetrics() {
-        if (activeEvent == null) {
-            swipeRefreshLayout.setRefreshing(false);
-            return;
-        }
-
-        String eventId = activeEvent.getId();
-
-        // 1. Panels Count
-        firebaseManager.getPanelsForEvent(eventId)
-                .addOnSuccessListener(qs -> tvCountPanels.setText(String.valueOf(qs.size())))
-                .addOnFailureListener(e -> tvCountPanels.setText("0"));
-
-        // 2. Teams Count
-        firebaseManager.getTeamsForEvent(eventId)
-                .addOnSuccessListener(qs -> tvCountTeams.setText(String.valueOf(qs.size())))
-                .addOnFailureListener(e -> tvCountTeams.setText("0"));
-
-        // 3. Judges Count
-        firebaseManager.getAllJudges()
-                .addOnSuccessListener(qs -> {
-                    int count = 0;
-                    for (DocumentSnapshot doc : qs.getDocuments()) {
-                        User u = doc.toObject(User.class);
-                        if (u != null && (u.isJudge() || (u.getRole() != null && !u.isAdmin()))) {
-                            count++;
+                    for (DocumentSnapshot doc : querySnapshot.getDocuments()) {
+                        Event e = doc.toObject(Event.class);
+                        if (e != null) {
+                            String st = e.getStatus();
+                            if (Event.STATUS_ACTIVE.equalsIgnoreCase(st)) {
+                                active++;
+                            } else if (Event.STATUS_UPCOMING.equalsIgnoreCase(st)) {
+                                upcoming++;
+                            } else if (Event.STATUS_COMPLETED.equalsIgnoreCase(st) || Event.STATUS_LOCKED.equalsIgnoreCase(st)) {
+                                completed++;
+                            }
                         }
                     }
-                    tvCountJudges.setText(String.valueOf(count));
-                })
-                .addOnFailureListener(e -> tvCountJudges.setText("0"));
 
-        // 4. Evaluations Count
-        firebaseManager.getEvaluationsForEvent(eventId)
-                .addOnSuccessListener(qs -> {
-                    tvCountEvaluations.setText(String.valueOf(qs.size()));
+                    tvCountTotalEvents.setText(String.valueOf(total));
+                    tvCountActiveEvents.setText(String.valueOf(active));
+                    tvCountUpcomingEvents.setText(String.valueOf(upcoming));
+                    tvCountCompletedEvents.setText(String.valueOf(completed));
+
                     swipeRefreshLayout.setRefreshing(false);
                 })
                 .addOnFailureListener(e -> {
-                    tvCountEvaluations.setText("0");
                     swipeRefreshLayout.setRefreshing(false);
+                    UIUtils.showToast(this, "Failed to load metrics: " + e.getMessage());
                 });
+    }
+
+    private void showCreateEventDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        View view = LayoutInflater.from(this).inflate(R.layout.dialog_add_event, null);
+
+        TextView tvDialogTitle = view.findViewById(R.id.tvDialogTitle);
+        tvDialogTitle.setText("Schedule New Competition");
+
+        TextInputLayout tilEventName = view.findViewById(R.id.tilEventName);
+        TextInputLayout tilEventDescription = view.findViewById(R.id.tilEventDescription);
+        TextInputEditText etEventName = view.findViewById(R.id.etEventName);
+        TextInputEditText etEventDescription = view.findViewById(R.id.etEventDescription);
+
+        RadioGroup rgScoringType = view.findViewById(R.id.rgScoringType);
+        RadioButton rbScoringWeighted = view.findViewById(R.id.rbScoringWeighted);
+        RadioButton rbScoringRaw = view.findViewById(R.id.rbScoringRaw);
+        MaterialCheckBox cbAnonymousJudging = view.findViewById(R.id.cbAnonymousJudging);
+
+        rbScoringWeighted.setChecked(true);
+        cbAnonymousJudging.setChecked(false);
+
+        builder.setView(view);
+        builder.setPositiveButton("Schedule Event", null);
+        builder.setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss());
+
+        AlertDialog dialog = builder.create();
+        dialog.setOnShowListener(d -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String name = etEventName.getText() != null ? etEventName.getText().toString().trim() : "";
+                String desc = etEventDescription.getText() != null ? etEventDescription.getText().toString().trim() : "";
+
+                if (TextUtils.isEmpty(name)) {
+                    tilEventName.setError("Competition name is required");
+                    return;
+                }
+
+                String scoringType = rbScoringRaw.isChecked() ? Event.SCORING_RAW : Event.SCORING_WEIGHTED;
+                boolean isAnonymous = cbAnonymousJudging.isChecked();
+
+                dialog.dismiss();
+                Dialog loadingDialog = UIUtils.showLoadingDialog(this, "Creating event...");
+
+                String orgId = currentAdmin != null ? currentAdmin.getOrganizationId() : null;
+                Event newEvent = new Event(null, name, desc, Event.STATUS_ACTIVE, false, System.currentTimeMillis());
+                newEvent.setScoringType(scoringType);
+                newEvent.setAnonymousJudging(isAnonymous);
+                if (orgId != null) {
+                    newEvent.setOrganizationId(orgId);
+                }
+
+                firebaseManager.createEvent(newEvent)
+                        .addOnSuccessListener(docRef -> {
+                            loadingDialog.dismiss();
+                            newEvent.setId(docRef.getId());
+                            UIUtils.showToast(this, "Event created successfully!");
+
+                            Intent hubIntent = new Intent(AdminDashboardActivity.this, EventDetailActivity.class);
+                            hubIntent.putExtra(Constants.EXTRA_EVENT, newEvent);
+                            hubIntent.putExtra(Constants.EXTRA_EVENT_ID, newEvent.getId());
+                            startActivity(hubIntent);
+                        })
+                        .addOnFailureListener(e -> {
+                            loadingDialog.dismiss();
+                            UIUtils.showToast(this, "Failed to create event: " + e.getMessage());
+                        });
+            });
+        });
+        dialog.show();
+    }
+
+    private void showOrganizationDetailsDialog() {
+        String orgName = currentAdmin != null && currentAdmin.getOrganizationName() != null ? currentAdmin.getOrganizationName() : "Institution";
+        String orgId = currentAdmin != null && currentAdmin.getOrganizationId() != null ? currentAdmin.getOrganizationId() : "primary_tenant";
+        String adminName = currentAdmin != null && currentAdmin.getName() != null ? currentAdmin.getName() : "Administrator";
+        String email = currentAdmin != null && currentAdmin.getEmail() != null ? currentAdmin.getEmail() : "";
+
+        new AlertDialog.Builder(this)
+                .setTitle("Institution Details")
+                .setMessage("College / Org: " + orgName + "\n\n" +
+                        "Tenant ID: " + orgId + "\n\n" +
+                        "Administrator: " + adminName + "\n\n" +
+                        "Official Email: " + email + "\n\n" +
+                        "Multi-tenant data isolation is active. All events, rubrics, panels, and scores are scoped to your institution.")
+                .setPositiveButton("Close", null)
+                .show();
     }
 }

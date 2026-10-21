@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat;
 
 import com.example.judgex.R;
 import com.example.judgex.data.FirebaseManager;
+import com.example.judgex.models.Evaluation;
 import com.example.judgex.models.Event;
 import com.example.judgex.models.Team;
 import com.example.judgex.models.User;
@@ -179,17 +180,25 @@ public class QRScannerActivity extends AppCompatActivity {
                                     return;
                                 }
 
-                                // Security check: Verify panel assignment
+                                // Security check: Verify judge role
                                 User currentJudge = firebaseManager.getCurrentUserProfile();
+                                if (currentJudge != null && !currentJudge.isJudge() && !currentJudge.isAdmin()) {
+                                    showErrorDialog("Unauthorized", "Your account does not have Judge privileges.");
+                                    return;
+                                }
+
+                                // Security check: Verify panel assignment
                                 String assignedPanel = currentJudge != null 
                                         ? currentJudge.getPanelForEvent(teamEventId) 
                                         : judgePanelId;
 
                                 if (assignedPanel != null && !assignedPanel.isEmpty() && team.getPanelId() != null) {
                                     if (!assignedPanel.equals(team.getPanelId())) {
+                                        String teamDisplay = event.isAnonymousJudging()
+                                                ? "Team #" + team.getTeamNumber()
+                                                : team.getTeamNumber() + " - " + team.getTeamName();
                                         showErrorDialog("Panel Mismatch", 
-                                                "This team (" + team.getTeamNumber() + " - " + team.getTeamName() + 
-                                                ") is assigned to a different panel.\n\nYou are only authorized to evaluate teams in your assigned panel.");
+                                                "This team (" + teamDisplay + ") is assigned to a different panel.\n\nYou are only authorized to evaluate teams in your assigned panel.");
                                         return;
                                     }
                                 }
@@ -201,15 +210,19 @@ public class QRScannerActivity extends AppCompatActivity {
                                 firebaseManager.checkExistingEvaluation(team.getEventId(), team.getId(), judgeId)
                                         .addOnSuccessListener(evalDoc -> {
                                             if (evalDoc.exists()) {
-                                                showEvaluatedDialog(team);
-                                            } else {
-                                                // Proceed to evaluation form!
-                                                Intent intent = new Intent(QRScannerActivity.this, EvaluationFormActivity.class);
-                                                intent.putExtra(Constants.EXTRA_TEAM, team);
-                                                intent.putExtra(Constants.EXTRA_EVENT, event);
-                                                startActivity(intent);
-                                                finish();
+                                                Evaluation existingEval = evalDoc.toObject(Evaluation.class);
+                                                if (existingEval != null && existingEval.isSubmitted()) {
+                                                    showEvaluatedDialog(team, event);
+                                                    return;
+                                                }
+                                                // If it is a draft, proceed directly to evaluation form to resume work!
                                             }
+                                            // Proceed to evaluation form!
+                                            Intent intent = new Intent(QRScannerActivity.this, EvaluationFormActivity.class);
+                                            intent.putExtra(Constants.EXTRA_TEAM, team);
+                                            intent.putExtra(Constants.EXTRA_EVENT, event);
+                                            startActivity(intent);
+                                            finish();
                                         })
                                         .addOnFailureListener(e -> {
                                             // Strict security: Never bypass essential authorization checks on network errors
@@ -239,10 +252,13 @@ public class QRScannerActivity extends AppCompatActivity {
                 .show();
     }
 
-    private void showEvaluatedDialog(Team team) {
+    private void showEvaluatedDialog(Team team, Event event) {
+        String teamDisplay = (event != null && event.isAnonymousJudging()) 
+                ? "Team #" + team.getTeamNumber() 
+                : team.getTeamNumber() + " (" + team.getTeamName() + ")";
         new AlertDialog.Builder(this)
                 .setTitle("Already Evaluated")
-                .setMessage("You have already submitted an evaluation for " + team.getTeamNumber() + " (" + team.getTeamName() + "). Duplicate submissions are not permitted.")
+                .setMessage("You have already submitted an evaluation for " + teamDisplay + ". Duplicate submissions are not permitted.")
                 .setPositiveButton("View Receipt", (dialog, which) -> {
                     dialog.dismiss();
                     User currentJudge = firebaseManager.getCurrentUserProfile();

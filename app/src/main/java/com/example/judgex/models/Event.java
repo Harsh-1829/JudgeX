@@ -19,6 +19,7 @@ public class Event implements Serializable {
     private String scoringType; // WEIGHTED or RAW
     private boolean isAnonymousJudging;
     private boolean isLocked;
+    private String organizationId; // Multi-college tenant isolation
     private long createdAt;
 
     public Event() {
@@ -131,5 +132,13 @@ public class Event implements Serializable {
 
     public boolean isEditable() {
         return isUpcoming() && !isLocked && !isCompleted();
+    }
+
+    public String getOrganizationId() {
+        return organizationId;
+    }
+
+    public void setOrganizationId(String organizationId) {
+        this.organizationId = organizationId;
     }
 }

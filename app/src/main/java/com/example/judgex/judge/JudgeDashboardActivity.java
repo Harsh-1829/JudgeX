@@ -43,6 +43,7 @@ public class JudgeDashboardActivity extends AppCompatActivity implements TeamAda
     private final FirebaseManager firebaseManager = FirebaseManager.getInstance();
     private final List<Team> assignedTeams = new ArrayList<>();
     private final Set<String> evaluatedTeamIds = new HashSet<>();
+    private final Set<String> draftTeamIds = new HashSet<>();
     private TeamAdapter adapter;
 
     private User currentJudge;
@@ -82,7 +83,7 @@ public class JudgeDashboardActivity extends AppCompatActivity implements TeamAda
         recyclerViewAssignedTeams = findViewById(R.id.recyclerViewAssignedTeams);
 
         recyclerViewAssignedTeams.setLayoutManager(new LinearLayoutManager(this));
-        adapter = new TeamAdapter(assignedTeams, evaluatedTeamIds, this);
+        adapter = new TeamAdapter(assignedTeams, evaluatedTeamIds, draftTeamIds, this);
         recyclerViewAssignedTeams.setAdapter(adapter);
 
         swipeRefreshLayout.setOnRefreshListener(this::loadJudgeProfileAndData);
@@ -203,14 +204,19 @@ public class JudgeDashboardActivity extends AppCompatActivity implements TeamAda
     }
 
     private void loadPanelTeams(String panelId) {
-        // First load evaluations by this judge to check which teams are already evaluated
+        // First load evaluations by this judge to check which teams are evaluated vs in-progress drafts
         firebaseManager.getEvaluationsByJudge(currentJudge.getUid())
                 .addOnSuccessListener(evalSnapshots -> {
                     evaluatedTeamIds.clear();
+                    draftTeamIds.clear();
                     for (DocumentSnapshot doc : evalSnapshots.getDocuments()) {
-                        String teamId = doc.getString("teamId");
-                        if (teamId != null) {
-                            evaluatedTeamIds.add(teamId);
+                        Evaluation eval = doc.toObject(Evaluation.class);
+                        if (eval != null && eval.getTeamId() != null) {
+                            if (eval.isSubmitted()) {
+                                evaluatedTeamIds.add(eval.getTeamId());
+                            } else if (eval.isDraft()) {
+                                draftTeamIds.add(eval.getTeamId());
+                            }
                         }
                     }
 
@@ -243,9 +249,12 @@ public class JudgeDashboardActivity extends AppCompatActivity implements TeamAda
     private void updateTeamsUI() {
         int totalAssigned = assignedTeams.size();
         int totalEvaluated = 0;
+        int totalDrafts = 0;
         for (Team team : assignedTeams) {
             if (evaluatedTeamIds.contains(team.getId())) {
                 totalEvaluated++;
+            } else if (draftTeamIds.contains(team.getId())) {
+                totalDrafts++;
             }
         }
         int totalPending = totalAssigned - totalEvaluated;

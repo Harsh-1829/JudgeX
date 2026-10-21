@@ -17,112 +17,117 @@
         android:orientation="vertical"
         android:padding="16dp">
 
+        <!-- Top Title -->
+        <TextView
+            android:id="@+id/tvCriterionName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Criterion Name"
+            android:textColor="@color/text_primary"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <!-- Badges Row: Placed clearly beneath title to prevent any overlapping -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
-            <LinearLayout
-                android:layout_width="0dp"
+            <TextView
+                android:id="@+id/tvMaxMarksBadge"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
+                android:background="@drawable/bg_badge_judge"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="4dp"
+                android:text="Max: 25 marks"
+                android:textColor="@color/accent"
+                android:textSize="12sp"
+                android:textStyle="bold" />
 
-                <TextView
-                    android:id="@+id/tvCriterionName"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Criterion Name"
-                    android:textColor="@color/text_primary"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tvCriterionDescription"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="Detailed description of grading factors"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="13sp" />
-
-            </LinearLayout>
-
-            <LinearLayout
+            <TextView
+                android:id="@+id/tvWeightBadge"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
-                android:gravity="end"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/tvWeightBadge"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/bg_badge_admin"
-                    android:paddingHorizontal="8dp"
-                    android:paddingVertical="3dp"
-                    android:text="Weight: 25%"
-                    android:textColor="#7C3AED"
-                    android:textSize="11sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tvMaxMarksBadge"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:background="@drawable/bg_badge_judge"
-                    android:paddingHorizontal="8dp"
-                    android:paddingVertical="3dp"
-                    android:text="Max: 10"
-                    android:textColor="@color/accent"
-                    android:textSize="11sp"
-                    android:textStyle="bold" />
-
-            </LinearLayout>
+                android:background="@drawable/bg_badge_admin"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="4dp"
+                android:text="Weight: 20%"
+                android:textColor="#7C3AED"
+                android:textSize="12sp"
+                android:textStyle="bold" />
 
         </LinearLayout>
 
-        <!-- Score Input Field -->
+        <!-- Criterion Description: High-contrast clear text with readable line spacing -->
+        <TextView
+            android:id="@+id/tvCriterionDescription"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:lineSpacingExtra="3dp"
+            android:text="Detailed description of grading factors and evaluation rubrics."
+            android:textColor="#334155"
+            android:textSize="13.5sp" />
+
+        <!-- Score Input Field: Spacious, non-overlapping, high contrast -->
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/tilScore"
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:hint="Score Awarded"
+            android:layout_marginTop="14dp"
+            android:hint="Award Marks"
+            app:boxCornerRadiusBottomEnd="10dp"
+            app:boxCornerRadiusBottomStart="10dp"
+            app:boxCornerRadiusTopEnd="10dp"
+            app:boxCornerRadiusTopStart="10dp"
             app:boxStrokeColor="@color/accent"
+            app:boxStrokeWidth="1.5dp"
             app:hintTextColor="@color/accent">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etScore"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:minHeight="52dp"
                 android:inputType="numberDecimal"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="12dp"
                 android:textColor="@color/text_primary"
-                android:textSize="16sp" />
+                android:textSize="16sp"
+                android:textStyle="bold" />
 
         </com.google.android.material.textfield.TextInputLayout>
 
-        <!-- Optional Criterion-specific Comment -->
+        <!-- Optional Criterion-specific Notes / Comments -->
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/tilCriterionComment"
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="Specific criterion notes (optional)"
-            app:boxStrokeColor="@color/text_muted">
+            android:layout_marginTop="10dp"
+            android:hint="Criterion feedback or remarks (optional)"
+            app:boxCornerRadiusBottomEnd="10dp"
+            app:boxCornerRadiusBottomStart="10dp"
+            app:boxCornerRadiusTopEnd="10dp"
+            app:boxCornerRadiusTopStart="10dp"
+            app:boxStrokeColor="@color/card_border"
+            app:hintTextColor="@color/text_secondary">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etCriterionComment"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:minHeight="48dp"
                 android:inputType="textCapSentences"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="10dp"
                 android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
+                android:textSize="13.5sp" />
 
         </com.google.android.material.textfield.TextInputLayout>
 

@@ -53,9 +53,13 @@ public class LoginActivity extends AppCompatActivity {
         btnLogin = findViewById(R.id.btnLogin);
         progressBar = findViewById(R.id.progressBar);
         tvErrorMessage = findViewById(R.id.tvErrorMessage);
+        MaterialButton btnRegisterAdmin = findViewById(R.id.btnRegisterAdmin);
 
         btnLogin.setOnClickListener(v -> handleLogin());
         tvForgotPassword.setOnClickListener(v -> showForgotPasswordDialog());
+        if (btnRegisterAdmin != null) {
+            btnRegisterAdmin.setOnClickListener(v -> startActivity(new Intent(LoginActivity.this, RegisterAdminActivity.class)));
+        }
     }
 
     private void handleLogin() {

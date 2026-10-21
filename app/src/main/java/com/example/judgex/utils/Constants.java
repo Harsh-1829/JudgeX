@@ -8,6 +8,7 @@ public class Constants {
     public static final String COLLECTION_CRITERIA = "criteria";
     public static final String COLLECTION_TEAMS = "teams";
     public static final String COLLECTION_EVALUATIONS = "evaluations";
+    public static final String COLLECTION_ORGANIZATIONS = "organizations";
 
     // Intent Extra Keys
     public static final String EXTRA_EVENT = "extra_event";

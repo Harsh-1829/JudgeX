@@ -162,6 +162,20 @@
                     android:indeterminateTint="@color/accent"
                     android:visibility="gone" />
 
+                <!-- Register College Admin Button -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnRegisterAdmin"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="50dp"
+                    android:layout_marginTop="12dp"
+                    android:text="Register as College Admin"
+                    android:textColor="@color/accent"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    app:cornerRadius="10dp"
+                    app:strokeColor="@color/accent" />
+
             </LinearLayout>
 
         </com.google.android.material.card.MaterialCardView>
