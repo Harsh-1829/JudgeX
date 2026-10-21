@@ -177,8 +177,8 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
                             if (user.isDeleted()) {
                                 continue;
                             }
-                            // Show in judge list if role is JUDGE or not ADMIN
-                            if (user.isJudge() || (user.getRole() != null && !user.isAdmin())) {
+                            // Show in judge list if role is JUDGE (including legacy formats) and not ADMIN or TEAM_LEADER
+                            if (user.isJudge() && !user.isAdmin() && !user.isTeamLeader()) {
                                 judgeList.add(user);
                             }
                         }
@@ -404,27 +404,42 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
     }
 
     private boolean isDeletableJudge(User judge, boolean showToast) {
-        if (judge == null) {
-            if (showToast) UIUtils.showToast(this, "Invalid judge record.");
+        if (judge == null || judge.getUid() == null || judge.getUid().trim().isEmpty()) {
+            if (showToast) UIUtils.showToast(this, "Cannot delete account: Missing or invalid user ID.");
             return false;
         }
+
+        // 1. Never delete the currently signed-in administrator account
         String currentAdminUid = firebaseManager.getCurrentUser() != null
                 ? firebaseManager.getCurrentUser().getUid() : null;
         String currentAdminEmail = firebaseManager.getCurrentUser() != null
                 ? firebaseManager.getCurrentUser().getEmail() : null;
 
-        if (judge.getUid() != null && judge.getUid().equals(currentAdminUid)) {
+        if (judge.getUid().equals(currentAdminUid)) {
             if (showToast) UIUtils.showToast(this, "Cannot delete the currently signed-in administrator account.");
             return false;
         }
 
         if (judge.getEmail() != null && currentAdminEmail != null
-                && judge.getEmail().equalsIgnoreCase(currentAdminEmail)) {
+                && judge.getEmail().trim().equalsIgnoreCase(currentAdminEmail.trim())) {
             if (showToast) UIUtils.showToast(this, "Cannot delete the currently signed-in administrator account.");
             return false;
         }
 
-        if (judge.isAdmin() || (judge.getRole() != null && !judge.isJudge())) {
+        // 2. Reject Administrator accounts
+        if (judge.isAdmin()) {
+            if (showToast) UIUtils.showToast(this, "Administrator accounts cannot be deleted from this screen.");
+            return false;
+        }
+
+        // 3. Reject Team Leader accounts
+        if (judge.isTeamLeader()) {
+            if (showToast) UIUtils.showToast(this, "Team Leader accounts cannot be deleted from this screen.");
+            return false;
+        }
+
+        // 4. Must be a valid judge account (supports current and legacy role strings)
+        if (!judge.isJudge()) {
             if (showToast) UIUtils.showToast(this, "Only judge accounts can be deleted from this screen.");
             return false;
         }

@@ -179,16 +179,45 @@ public class User implements Serializable {
         this.createdAt = createdAt;
     }
 
+    public static String normalizeRole(String rawRole) {
+        if (rawRole == null) return "";
+        String clean = rawRole.trim().toUpperCase(java.util.Locale.US);
+        if (clean.startsWith("ROLE_")) {
+            clean = clean.substring(5).trim();
+        }
+        return clean;
+    }
+
     public boolean isAdmin() {
-        return ROLE_ADMIN.equalsIgnoreCase(this.role);
+        String normalized = normalizeRole(this.role);
+        return ROLE_ADMIN.equals(normalized);
     }
 
     public boolean isJudge() {
-        return ROLE_JUDGE.equalsIgnoreCase(this.role);
+        String normalized = normalizeRole(this.role);
+        if (ROLE_JUDGE.equals(normalized) || "EVALUATOR".equals(normalized) 
+                || "JURY".equals(normalized) || "PANEL_JUDGE".equals(normalized)) {
+            return true;
+        }
+        // Legacy fallback: role is empty/generic, but user has panel assignments and no team assignment
+        if (normalized.isEmpty() || "USER".equals(normalized) || "MEMBER".equals(normalized)) {
+            boolean hasPanel = (assignedPanelId != null && !assignedPanelId.trim().isEmpty())
+                    || (eventPanelAssignments != null && !eventPanelAssignments.isEmpty());
+            boolean hasTeam = assignedTeamId != null && !assignedTeamId.trim().isEmpty();
+            return hasPanel && !hasTeam;
+        }
+        return false;
     }
 
     public boolean isTeamLeader() {
-        return ROLE_TEAM_LEADER.equalsIgnoreCase(this.role);
+        String normalized = normalizeRole(this.role);
+        if (ROLE_TEAM_LEADER.equals(normalized) || "LEADER".equals(normalized) || "TEAM".equals(normalized)) {
+            return true;
+        }
+        if (assignedTeamId != null && !assignedTeamId.trim().isEmpty()) {
+            return !isJudge() && !isAdmin();
+        }
+        return false;
     }
 
     public String getOrganizationId() {

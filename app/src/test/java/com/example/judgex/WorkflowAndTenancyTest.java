@@ -302,4 +302,56 @@ public class WorkflowAndTenancyTest {
         assertTrue("Admin user should be recognized as admin", admin.isAdmin());
         assertFalse("Admin user should not be recognized as judge", admin.isJudge());
     }
+
+    @Test
+    public void testLegacyAndCurrentJudgeRoleValidation() {
+        // Current canonical role
+        User j1 = new User("j1", "j1@test.com", "Judge 1", "JUDGE", "p1", System.currentTimeMillis());
+        assertTrue("Canonical JUDGE should be recognized as judge", j1.isJudge());
+        assertFalse("Canonical JUDGE should not be admin", j1.isAdmin());
+        assertFalse("Canonical JUDGE should not be team leader", j1.isTeamLeader());
+
+        // Legacy Spring convention ROLE_JUDGE
+        User j2 = new User("j2", "j2@test.com", "Judge 2", "ROLE_JUDGE", "p1", System.currentTimeMillis());
+        assertTrue("ROLE_JUDGE should be recognized as judge", j2.isJudge());
+        assertFalse("ROLE_JUDGE should not be admin", j2.isAdmin());
+
+        // Case insensitivity & whitespace
+        User j3 = new User("j3", "j3@test.com", "Judge 3", "  judge  ", "p1", System.currentTimeMillis());
+        assertTrue("judge with whitespace should be recognized as judge", j3.isJudge());
+
+        // Alternative legacy evaluator role
+        User j4 = new User("j4", "j4@test.com", "Judge 4", "EVALUATOR", "p1", System.currentTimeMillis());
+        assertTrue("EVALUATOR should be recognized as judge", j4.isJudge());
+
+        // Alternative legacy jury role
+        User j5 = new User("j5", "j5@test.com", "Judge 5", "JURY", "p1", System.currentTimeMillis());
+        assertTrue("JURY should be recognized as judge", j5.isJudge());
+
+        // Legacy account with missing/empty role but assigned panel
+        User j6 = new User("j6", "j6@test.com", "Judge 6", "", "panel_hack_1", System.currentTimeMillis());
+        assertTrue("Legacy user with panel assignment should be recognized as judge", j6.isJudge());
+    }
+
+    @Test
+    public void testAdminAndTeamLeaderProtectedFromDeletion() {
+        // Admin user variants
+        User a1 = new User("a1", "admin@judgex.com", "Admin", "ADMIN", null, System.currentTimeMillis());
+        assertTrue("ADMIN should be recognized as admin", a1.isAdmin());
+        assertFalse("ADMIN must not be recognized as judge", a1.isJudge());
+
+        User a2 = new User("a2", "admin2@judgex.com", "Admin 2", "ROLE_ADMIN", null, System.currentTimeMillis());
+        assertTrue("ROLE_ADMIN should be recognized as admin", a2.isAdmin());
+        assertFalse("ROLE_ADMIN must not be recognized as judge", a2.isJudge());
+
+        // Team leader variants
+        User tl1 = new User("tl1", "tl1@judgex.com", "Leader", "TEAM_LEADER", null, System.currentTimeMillis());
+        tl1.setAssignedTeamId("team_1");
+        assertTrue("TEAM_LEADER should be recognized as team leader", tl1.isTeamLeader());
+        assertFalse("TEAM_LEADER must not be recognized as judge", tl1.isJudge());
+
+        User tl2 = new User("tl2", "tl2@judgex.com", "Leader 2", "ROLE_TEAM_LEADER", null, System.currentTimeMillis());
+        assertTrue("ROLE_TEAM_LEADER should be recognized as team leader", tl2.isTeamLeader());
+        assertFalse("ROLE_TEAM_LEADER must not be recognized as judge", tl2.isJudge());
+    }
 }
