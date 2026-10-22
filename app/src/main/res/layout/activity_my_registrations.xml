@@ -109,6 +109,7 @@
                 android:visibility="gone">
 
                 <TextView
+                    android:id="@+id/tvEmptyTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="No Registrations Found"
@@ -117,6 +118,7 @@
                     android:textStyle="bold" />
 
                 <TextView
+                    android:id="@+id/tvEmptySubtitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"

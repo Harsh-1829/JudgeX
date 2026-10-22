@@ -127,7 +127,11 @@ public class EventDetailLeaderActivity extends AppCompatActivity {
             tvTeamSizeLimits.setText("Min " + currentEvent.getMinTeamSize() + " • Max " + currentEvent.getMaxTeamSize() + " members");
         }
 
-        tvEligibility.setText(currentEvent.getEligibility() != null ? currentEvent.getEligibility() : "Open to all verified college students.");
+        String eligText = "Eligible Schools: " + currentEvent.getEligibleSchoolsSummary();
+        if (currentEvent.getEligibility() != null && !currentEvent.getEligibility().isEmpty()) {
+            eligText += "\n" + currentEvent.getEligibility();
+        }
+        tvEligibility.setText(eligText);
 
         boolean isOpen = currentEvent.isRegistrationOpen();
         if (isOpen) {
@@ -218,6 +222,19 @@ public class EventDetailLeaderActivity extends AppCompatActivity {
 
         if (currentEvent == null || !currentEvent.isRegistrationOpen()) {
             UIUtils.showToast(this, "Registration is currently closed for this event.");
+            return;
+        }
+
+        // Validate School Eligibility
+        User leaderProfile = firebaseManager.getCurrentUserProfile();
+        String leaderSchool = leaderProfile != null ? leaderProfile.getSchool() : (currentTeam != null ? currentTeam.getSchool() : null);
+        if (currentEvent != null && leaderSchool != null && !leaderSchool.isEmpty() && !currentEvent.isSchoolEligible(leaderSchool)) {
+            new AlertDialog.Builder(this)
+                    .setTitle("School Ineligible")
+                    .setMessage("This competition is restricted to: " + currentEvent.getEligibleSchoolsSummary()
+                            + ".\n\nYour profile is registered under " + leaderSchool + ", which is not eligible for this event.")
+                    .setPositiveButton("OK", null)
+                    .show();
             return;
         }
 

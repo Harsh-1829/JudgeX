@@ -1,6 +1,7 @@
 package com.example.judgex.team;
 
 import android.app.Dialog;
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -31,7 +32,7 @@ public class RegistrationDetailsActivity extends AppCompatActivity {
     private TextView tvStatusBadge, tvRegistrationId, tvEventName, tvTeamName, tvSource;
     private TextView tvProjectAndCategory, tvSubmittedAt, tvRemarks;
     private LinearLayout llMembersContainer;
-    private MaterialButton btnCancelRegistration;
+    private MaterialButton btnViewQRPass, btnCancelRegistration;
 
     private final FirebaseManager firebaseManager = FirebaseManager.getInstance();
     private EventRegistration registration;
@@ -68,10 +69,19 @@ public class RegistrationDetailsActivity extends AppCompatActivity {
         tvSubmittedAt = findViewById(R.id.tvSubmittedAt);
         tvRemarks = findViewById(R.id.tvRemarks);
         llMembersContainer = findViewById(R.id.llMembersContainer);
+        btnViewQRPass = findViewById(R.id.btnViewQRPass);
         btnCancelRegistration = findViewById(R.id.btnCancelRegistration);
 
         toolbar.setNavigationOnClickListener(v -> finish());
         btnCancelRegistration.setOnClickListener(v -> confirmCancellation());
+        btnViewQRPass.setOnClickListener(v -> {
+            if (registration != null) {
+                Intent qrIntent = new Intent(this, com.example.judgex.qr.QRViewActivity.class);
+                qrIntent.putExtra(Constants.EXTRA_REGISTRATION, registration);
+                qrIntent.putExtra(Constants.EXTRA_REGISTRATION_ID, registration.getId());
+                startActivity(qrIntent);
+            }
+        });
     }
 
     private void loadRegistrationById(String regId) {
@@ -128,20 +138,24 @@ public class RegistrationDetailsActivity extends AppCompatActivity {
             tvStatusBadge.setTextColor(ContextCompat.getColor(this, R.color.white));
             btnCancelRegistration.setVisibility(View.VISIBLE);
             btnCancelRegistration.setEnabled(true);
+            btnViewQRPass.setVisibility(View.VISIBLE);
         } else if (registration.isPending()) {
             tvStatusBadge.setText("PENDING APPROVAL");
             tvStatusBadge.setBackgroundResource(R.drawable.bg_badge_pending);
             tvStatusBadge.setTextColor(ContextCompat.getColor(this, R.color.warning));
             btnCancelRegistration.setVisibility(View.VISIBLE);
             btnCancelRegistration.setEnabled(true);
+            btnViewQRPass.setVisibility(View.GONE);
         } else if (registration.isCancelled()) {
             tvStatusBadge.setText("CANCELLED");
             tvStatusBadge.setBackgroundResource(R.drawable.bg_badge_locked);
             tvStatusBadge.setTextColor(ContextCompat.getColor(this, R.color.text_secondary));
             btnCancelRegistration.setVisibility(View.GONE);
+            btnViewQRPass.setVisibility(View.GONE);
         } else {
             tvStatusBadge.setText(registration.getStatus());
             btnCancelRegistration.setVisibility(View.GONE);
+            btnViewQRPass.setVisibility(View.GONE);
         }
 
         // Populate Members Snapshot

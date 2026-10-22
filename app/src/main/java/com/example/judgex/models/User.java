@@ -24,6 +24,8 @@ public class User implements Serializable {
     private String department;
     private String rollNumber;
     private String phone;
+    private String school; // e.g. STME, SOC, SPTM, SBM, SOL
+    private String yearOfStudy; // e.g. 1st Year, 2nd Year, etc.
     private String status; // ACTIVE or INACTIVE
     private boolean active;
     private boolean deleted;
@@ -261,5 +263,21 @@ public class User implements Serializable {
 
     public void setPhone(String phone) {
         this.phone = phone;
+    }
+
+    public String getSchool() {
+        return school;
+    }
+
+    public void setSchool(String school) {
+        this.school = school != null ? school.trim().toUpperCase(java.util.Locale.US) : null;
+    }
+
+    public String getYearOfStudy() {
+        return yearOfStudy;
+    }
+
+    public void setYearOfStudy(String yearOfStudy) {
+        this.yearOfStudy = yearOfStudy;
     }
 }

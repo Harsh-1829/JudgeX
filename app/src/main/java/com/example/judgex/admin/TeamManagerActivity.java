@@ -23,15 +23,20 @@ import com.example.judgex.models.Event;
 import com.example.judgex.models.EventRegistration;
 import com.example.judgex.models.Panel;
 import com.example.judgex.models.Team;
+import com.example.judgex.models.TeamMember;
+import com.example.judgex.models.User;
 import com.example.judgex.qr.QRViewActivity;
 import com.example.judgex.utils.Constants;
 import com.example.judgex.utils.UIUtils;
+import com.google.android.gms.tasks.Task;
+import com.google.android.gms.tasks.Tasks;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.firestore.DocumentSnapshot;
+import com.google.firebase.firestore.QuerySnapshot;
 
 import org.json.JSONObject;
 
@@ -472,10 +477,9 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
         String unregisterLabel = team.isUnregistered() 
                 ? "Re-register Team in Event" 
                 : "Remove from Event / Unregister Team";
-
         String[] options = {
                 "View Team & Leader Details",
-                "Send Password Reset to Leader",
+                "Change Password",
                 "Edit Team Details",
                 "Reassign Panel",
                 "View / Share QR Pass",
@@ -491,7 +495,7 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
                             showTeamDetailsDialog(team);
                             break;
                         case 1:
-                            sendPasswordResetForLeader(team);
+                            showChangeTeamLeaderPasswordDialog(team);
                             break;
                         case 2:
                             showAddEditTeamDialog(team);
@@ -515,6 +519,41 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
     }
 
     private void showTeamDetailsDialog(Team team) {
+        Dialog loading = UIUtils.showLoadingDialog(this, "Loading complete team details...");
+
+        String leaderUid = team.getLeaderUid();
+        Task<DocumentSnapshot> userTask = (leaderUid != null && !leaderUid.isEmpty())
+                ? firebaseManager.fetchUserProfile(leaderUid)
+                : Tasks.forResult(null);
+
+        Task<QuerySnapshot> registrationsTask = (team.getId() != null)
+                ? firebaseManager.getDb().collection(Constants.COLLECTION_REGISTRATIONS).whereEqualTo("teamId", team.getId()).get()
+                : Tasks.forResult(null);
+
+        Tasks.whenAllComplete(userTask, registrationsTask)
+                .addOnCompleteListener(t -> {
+                    loading.dismiss();
+
+                    User leaderUser = null;
+                    if (userTask.isSuccessful() && userTask.getResult() != null && userTask.getResult().exists()) {
+                        leaderUser = userTask.getResult().toObject(User.class);
+                    }
+
+                    List<TeamMember> members = team.getMembers() != null ? team.getMembers() : new ArrayList<>();
+
+                    List<EventRegistration> registrations = new ArrayList<>();
+                    if (registrationsTask.isSuccessful() && registrationsTask.getResult() != null) {
+                        for (DocumentSnapshot doc : registrationsTask.getResult().getDocuments()) {
+                            EventRegistration reg = doc.toObject(EventRegistration.class);
+                            if (reg != null) registrations.add(reg);
+                        }
+                    }
+
+                    displayComprehensiveTeamDetails(team, leaderUser, members, registrations);
+                });
+    }
+
+    private void displayComprehensiveTeamDetails(Team team, User leaderUser, List<TeamMember> members, List<EventRegistration> registrations) {
         String panelName = "Unassigned";
         if (team.getPanelId() != null) {
             for (Panel p : panelList) {
@@ -525,58 +564,204 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
             }
         }
 
+        String school = (team.getSchool() != null && !team.getSchool().isEmpty())
+                ? team.getSchool()
+                : (leaderUser != null && leaderUser.getSchool() != null ? leaderUser.getSchool() : "Not Specified");
+        String yearOfStudy = (leaderUser != null && leaderUser.getYearOfStudy() != null && !leaderUser.getYearOfStudy().isEmpty())
+                ? leaderUser.getYearOfStudy()
+                : "Not Specified";
+        String org = (team.getOrganizationId() != null && !team.getOrganizationId().isEmpty())
+                ? team.getOrganizationId()
+                : (leaderUser != null && leaderUser.getOrganizationId() != null ? leaderUser.getOrganizationId() : "General Organization");
+
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.US);
+        String createdStr = "N/A";
+        if (team.getCreatedAt() > 0) {
+            createdStr = sdf.format(new java.util.Date(team.getCreatedAt()));
+        } else if (leaderUser != null && leaderUser.getCreatedAt() > 0) {
+            createdStr = sdf.format(new java.util.Date(leaderUser.getCreatedAt()));
+        }
+
         StringBuilder details = new StringBuilder();
-        details.append("🏷️ Team Number: ").append(team.getTeamNumber()).append("\n\n");
-        details.append("🚀 Team Name: ").append(team.getTeamName()).append("\n\n");
-        details.append("💡 Project: ").append(team.getProjectTitle() != null ? team.getProjectTitle() : "N/A").append("\n\n");
-        details.append("📂 Category: ").append(team.getCategory() != null ? team.getCategory() : "General").append("\n\n");
-        details.append("👤 Team Leader: ").append(team.getLeaderName() != null ? team.getLeaderName() : "N/A").append("\n\n");
-        details.append("📧 Leader Email: ").append(team.getLeaderEmail() != null ? team.getLeaderEmail() : "N/A").append("\n\n");
-        details.append("⚖️ Panel Assignment: ").append(panelName).append("\n\n");
-        details.append("👥 Team Members: ").append(team.getMemberCount()).append("\n\n");
-        details.append("🟢 Participation Status: ").append(team.isUnregistered() ? "Unregistered / Removed" : "Active").append("\n\n");
-        details.append("🎫 Event QR Pass: ").append(team.getQrCodeData() != null && !team.getQrCodeData().isEmpty() ? "Generated (v2 Secured)" : "Not Generated");
+        details.append("🏷️ Team: ").append(team.getTeamNumber()).append(" - ").append(team.getTeamName()).append("\n");
+        details.append("🏫 School: ").append(school).append("\n");
+        details.append("🎓 Year of Study: ").append(yearOfStudy).append("\n");
+        details.append("🏢 Organization: ").append(org).append("\n");
+        details.append("👤 Team Leader: ").append(team.getLeaderName() != null ? team.getLeaderName() : "N/A").append("\n");
+        details.append("📧 Leader Email: ").append(team.getLeaderEmail() != null ? team.getLeaderEmail() : "N/A").append("\n");
+        details.append("📅 Registered Date: ").append(createdStr).append("\n\n");
+
+        details.append("💡 Project: ").append(team.getProjectTitle() != null ? team.getProjectTitle() : "N/A").append("\n");
+        details.append("📂 Category: ").append(team.getCategory() != null ? team.getCategory() : "General").append("\n");
+        details.append("⚖️ Panel Assignment: ").append(panelName).append("\n");
+        details.append("🟢 Status: ").append(team.isUnregistered() ? "Unregistered / Removed" : "Active").append("\n\n");
+
+        // Team Roster Section
+        details.append("👥 TEAM ROSTER (").append(members.isEmpty() ? team.getMemberCount() : members.size()).append(" Members):\n");
+        if (!members.isEmpty()) {
+            for (int i = 0; i < members.size(); i++) {
+                TeamMember m = members.get(i);
+                String role = m.getRoleInTeam() != null ? m.getRoleInTeam() : "Member";
+                String mSchool = m.getSchool() != null ? " (" + m.getSchool() + ")" : "";
+                details.append("  ").append(i + 1).append(". ").append(m.getName()).append(" - ").append(role).append(mSchool).append("\n");
+            }
+        } else {
+            details.append("  • Leader: ").append(team.getLeaderName() != null ? team.getLeaderName() : "N/A").append("\n");
+            details.append("  • Total registered count: ").append(team.getMemberCount()).append("\n");
+        }
+        details.append("\n");
+
+        // Event Registrations Section
+        details.append("📋 EVENT REGISTRATIONS:\n");
+        if (!registrations.isEmpty()) {
+            for (EventRegistration reg : registrations) {
+                String eName = reg.getEventName() != null ? reg.getEventName() : reg.getEventId();
+                String status = reg.getStatus() != null ? reg.getStatus().toUpperCase() : "CONFIRMED";
+                details.append("  • ").append(eName).append(" [").append(status).append("]\n");
+            }
+        } else {
+            details.append("  • Current Event: ").append(currentEvent != null ? currentEvent.getName() : eventId).append(" [ACTIVE]\n");
+        }
 
         new AlertDialog.Builder(this)
-                .setTitle("Team & Leader Details")
+                .setTitle("Complete Team & Leader Details")
                 .setMessage(details.toString())
                 .setPositiveButton("Close", (dialog, which) -> dialog.dismiss())
                 .setNeutralButton("View QR Pass", (dialog, which) -> {
                     dialog.dismiss();
                     onQRClick(team);
                 })
+                .setNegativeButton("Change Password", (dialog, which) -> {
+                    dialog.dismiss();
+                    showChangeTeamLeaderPasswordDialog(team);
+                })
                 .show();
     }
 
-    private void sendPasswordResetForLeader(Team team) {
+    private void showChangeTeamLeaderPasswordDialog(Team team) {
         String email = team.getLeaderEmail();
+        String name = team.getLeaderName() != null ? team.getLeaderName() : "Team Leader";
         if (TextUtils.isEmpty(email)) {
             UIUtils.showToast(this, "No team leader email registered for this team.");
             return;
         }
 
-        new AlertDialog.Builder(this)
-                .setTitle("Send Password Reset Email")
-                .setMessage("Send an official Firebase Authentication password-reset email to the Team Leader at:\n\n" + email +
-                        "\n\nThe Team Leader will receive a secure email link allowing them to choose a new password. Plaintext passwords are never stored.")
-                .setPositiveButton("Send Reset Email", (dialog, which) -> {
-                    Dialog loading = UIUtils.showLoadingDialog(this, "Sending reset email...");
-                    FirebaseAuth.getInstance().sendPasswordResetEmail(email.trim())
-                            .addOnSuccessListener(aVoid -> {
-                                loading.dismiss();
-                                UIUtils.showToast(this, "Password reset email sent to " + email);
-                            })
-                            .addOnFailureListener(e -> {
-                                loading.dismiss();
-                                new AlertDialog.Builder(this)
-                                        .setTitle("Password Reset Failed")
-                                        .setMessage("Could not send password reset email:\n\n" + e.getMessage())
-                                        .setPositiveButton("OK", (d, w) -> d.dismiss())
-                                        .show();
-                            });
+        android.widget.LinearLayout container = new android.widget.LinearLayout(this);
+        container.setOrientation(android.widget.LinearLayout.VERTICAL);
+        container.setPadding(50, 20, 50, 10);
+
+        TextView tvInfo = new TextView(this);
+        tvInfo.setText("Set a new password for:\n👤 " + name + "\n📧 " + email);
+        tvInfo.setTextSize(14f);
+        tvInfo.setPadding(0, 0, 0, 24);
+        container.addView(tvInfo);
+
+        TextInputLayout tilNewPass = new TextInputLayout(this);
+        tilNewPass.setHint("New Password (min 6 characters)");
+        tilNewPass.setEndIconMode(TextInputLayout.END_ICON_PASSWORD_TOGGLE);
+        TextInputEditText etNewPass = new TextInputEditText(this);
+        etNewPass.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        tilNewPass.addView(etNewPass);
+        container.addView(tilNewPass);
+
+        TextInputLayout tilConfirmPass = new TextInputLayout(this);
+        tilConfirmPass.setHint("Confirm New Password");
+        tilConfirmPass.setEndIconMode(TextInputLayout.END_ICON_PASSWORD_TOGGLE);
+        TextInputEditText etConfirmPass = new TextInputEditText(this);
+        etConfirmPass.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        tilConfirmPass.addView(etConfirmPass);
+        container.addView(tilConfirmPass);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Change Password")
+                .setView(container)
+                .setPositiveButton("Change Password", null)
+                .setNegativeButton("Cancel", (d, w) -> d.dismiss())
+                .create();
+
+        dialog.setOnShowListener(d -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String newPass = etNewPass.getText() != null ? etNewPass.getText().toString() : "";
+                String confirmPass = etConfirmPass.getText() != null ? etConfirmPass.getText().toString() : "";
+
+                if (TextUtils.isEmpty(newPass)) {
+                    tilNewPass.setError("Password cannot be empty");
+                    return;
+                }
+                if (newPass.length() < 6) {
+                    tilNewPass.setError("Password must be at least 6 characters");
+                    return;
+                }
+                tilNewPass.setError(null);
+
+                if (!newPass.equals(confirmPass)) {
+                    tilConfirmPass.setError("Passwords do not match");
+                    return;
+                }
+                tilConfirmPass.setError(null);
+
+                new AlertDialog.Builder(this)
+                        .setTitle("Confirm Password Change")
+                        .setMessage("Are you sure you want to change the password for:\n\n" + name + " (" + email + ")?")
+                        .setPositiveButton("Yes, Change", (confirmDialog, which) -> {
+                            dialog.dismiss();
+                            executeChangeTeamLeaderPassword(team, newPass);
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show();
+            });
+        });
+
+        dialog.show();
+    }
+
+    private void executeChangeTeamLeaderPassword(Team team, String newPassword) {
+        Dialog loading = UIUtils.showLoadingDialog(this, "Updating password via backend...");
+
+        if (team.getLeaderUid() != null && !team.getLeaderUid().trim().isEmpty()) {
+            callBackendChangePassword(team.getLeaderUid().trim(), team.getLeaderEmail(), newPassword, loading);
+        } else {
+            firebaseManager.getDb().collection(Constants.COLLECTION_USERS)
+                    .whereEqualTo("email", team.getLeaderEmail().trim())
+                    .get()
+                    .addOnSuccessListener(querySnapshot -> {
+                        if (!querySnapshot.isEmpty()) {
+                            String targetUid = querySnapshot.getDocuments().get(0).getId();
+                            callBackendChangePassword(targetUid, team.getLeaderEmail(), newPassword, loading);
+                        } else {
+                            loading.dismiss();
+                            new AlertDialog.Builder(this)
+                                    .setTitle("User Not Found")
+                                    .setMessage("Could not find a user account associated with " + team.getLeaderEmail())
+                                    .setPositiveButton("OK", null)
+                                    .show();
+                        }
+                    })
+                    .addOnFailureListener(e -> {
+                        loading.dismiss();
+                        UIUtils.showToast(this, "Failed to resolve leader account: " + e.getMessage());
+                    });
+        }
+    }
+
+    private void callBackendChangePassword(String targetUid, String email, String newPassword, Dialog loading) {
+        firebaseManager.adminChangeUserPassword(targetUid, newPassword)
+                .addOnSuccessListener(msg -> {
+                    loading.dismiss();
+                    new AlertDialog.Builder(this)
+                            .setTitle("Password Changed")
+                            .setMessage("Successfully changed password for " + email + ".\n\n" + msg)
+                            .setPositiveButton("OK", null)
+                            .show();
                 })
-                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
-                .show();
+                .addOnFailureListener(e -> {
+                    loading.dismiss();
+                    new AlertDialog.Builder(this)
+                            .setTitle("Password Change Failed")
+                            .setMessage("Could not change password:\n\n" + e.getMessage())
+                            .setPositiveButton("OK", null)
+                            .show();
+                });
     }
 
     private void handleRemoveTeamFromEvent(Team team) {

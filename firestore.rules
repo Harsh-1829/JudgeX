@@ -15,6 +15,24 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    function getUserOrgId() {
+      return getUserData().organizationId;
+    }
+
+    function isSameOrg(orgId) {
+      return hasUserData() && getUserOrgId() == orgId;
+    }
+
+    function getEventData(eventId) {
+      return get(/databases/$(database)/documents/events/$(eventId)).data;
+    }
+
+    function isSameEventOrg(eventId) {
+      return hasUserData() && 
+             exists(/databases/$(database)/documents/events/$(eventId)) && 
+             getEventData(eventId).organizationId == getUserOrgId();
+    }
+
     function isAdmin() {
       return hasUserData() && getUserData().role == 'ADMIN';
     }
@@ -30,96 +48,155 @@ service cloud.firestore {
     // Organizations Collection (Multi-college tenant boundaries)
     match /organizations/{orgId} {
       allow read: if isAuthenticated();
-      // An authenticated user can register a new organization where they are the designated admin
-      allow create: if isAuthenticated() && request.resource.data.adminUid == request.auth.uid;
+      // An authenticated user who does not yet have a profile can register a new organization where they are the designated admin
+      allow create: if isAuthenticated() && !hasUserData() && 
+                    request.resource.data.adminUid == request.auth.uid &&
+                    request.resource.data.contactEmail == request.auth.token.email;
       // Only the designated organization admin can update institutional details
-      allow update: if isAuthenticated() && (isAdmin() && resource.data.adminUid == request.auth.uid);
+      allow update: if isAuthenticated() && isAdmin() && resource.data.adminUid == request.auth.uid && isSameOrg(orgId);
       allow delete: if false; // Tenant preservation
     }
 
     // Users Collection
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      // Admin can provision users; Users can create their own profile during initial registration.
-      // If creating an ADMIN role, user must be the designated adminUid in the corresponding organization doc.
+      // Users can read their own profile; Admins and Judges can read user profiles in their own organization
+      allow read: if isAuthenticated() && 
+                    (request.auth.uid == userId || 
+                     (hasUserData() && (isAdmin() || isJudge()) && resource.data.organizationId == getUserOrgId()));
+
+      // Profile creation:
+      // 1. Existing Admin can provision a new user within their own organization.
+      // 2. Self-registration allows ONLY 'TEAM_LEADER' role.
+      // 3. Self-registration allows 'ADMIN' role ONLY IF the organization exists and designates this user as adminUid with matching verified email.
+      // 4. Privileged role 'JUDGE' CANNOT be self-assigned.
       allow create: if isAuthenticated() && 
-                    (isAdmin() || 
+                    ((isAdmin() && request.resource.data.organizationId == getUserOrgId()) || 
                      (request.auth.uid == userId && 
-                      (request.resource.data.role != 'ADMIN' || 
-                       (exists(/databases/$(database)/documents/organizations/$(request.resource.data.organizationId)) && 
-                        get(/databases/$(database)/documents/organizations/$(request.resource.data.organizationId)).data.adminUid == request.auth.uid))));
-      // Admin can update; User can update non-privileged fields without modifying their role
+                      ((request.resource.data.role == 'TEAM_LEADER') || 
+                       (request.resource.data.role == 'ADMIN' && 
+                        exists(/databases/$(database)/documents/organizations/$(request.resource.data.organizationId)) && 
+                        get(/databases/$(database)/documents/organizations/$(request.resource.data.organizationId)).data.adminUid == request.auth.uid &&
+                        get(/databases/$(database)/documents/organizations/$(request.resource.data.organizationId)).data.contactEmail == request.auth.token.email))));
+
+      // Profile update:
+      // 1. Admin can update user profiles in their own organization.
+      // 2. Self-update allows updating non-privileged fields, but role, organizationId, uid, and status are strictly immutable.
       allow update: if isAuthenticated() && 
-                     (isAdmin() || 
-                      (request.auth.uid == userId && request.resource.data.role == resource.data.role));
-      allow delete: if isAdmin();
+                    ((isAdmin() && resource.data.organizationId == getUserOrgId() && request.resource.data.organizationId == getUserOrgId()) || 
+                     (request.auth.uid == userId && 
+                      request.resource.data.role == resource.data.role && 
+                      request.resource.data.organizationId == resource.data.organizationId &&
+                      request.resource.data.uid == resource.data.uid &&
+                      request.resource.data.status == resource.data.status));
+
+      // Profile delete:
+      // Only Admin in the same organization can delete.
+      allow delete: if isAuthenticated() && isAdmin() && resource.data.organizationId == getUserOrgId();
     }
 
     // Events Collection (Admin-configured competitions)
     match /events/{eventId} {
+      // Any authenticated user can discover events; client application strictly filters drafts and school eligibility
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow create: if isAuthenticated() && isAdmin() && request.resource.data.organizationId == getUserOrgId();
+      allow update: if isAuthenticated() && isAdmin() && resource.data.organizationId == getUserOrgId() && request.resource.data.organizationId == getUserOrgId();
+      allow delete: if isAuthenticated() && isAdmin() && resource.data.organizationId == getUserOrgId();
     }
 
     // Panels Collection (Admin-controlled panels and venue assignments)
     match /panels/{panelId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow create: if isAuthenticated() && isAdmin() && isSameEventOrg(request.resource.data.eventId);
+      allow update: if isAuthenticated() && isAdmin() && isSameEventOrg(resource.data.eventId) && isSameEventOrg(request.resource.data.eventId);
+      allow delete: if isAuthenticated() && isAdmin() && isSameEventOrg(resource.data.eventId);
     }
 
     // Criteria Collection (Dynamic rubrics)
     match /criteria/{criterionId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow create: if isAuthenticated() && isAdmin() && isSameEventOrg(request.resource.data.eventId);
+      allow update: if isAuthenticated() && isAdmin() && isSameEventOrg(resource.data.eventId) && isSameEventOrg(request.resource.data.eventId);
+      allow delete: if isAuthenticated() && isAdmin() && isSameEventOrg(resource.data.eventId);
     }
 
     // Teams Collection
     match /teams/{teamId} {
-      allow read: if isAuthenticated();
-      // Admin can create/delete; Team leader can create their own team with their UID
-      allow create: if isAuthenticated() && (isAdmin() || (isTeamLeader() && request.resource.data.leaderUid == request.auth.uid));
-      allow delete: if isAdmin();
-      // Admin can update; Team leader can update team details without altering panel assignments
+      // Admin and Judges can read teams within their organization; Team Leaders can only read their own team
+      allow read: if isAuthenticated() && 
+                    (((isAdmin() || isJudge()) && resource.data.organizationId == getUserOrgId()) || 
+                     (resource.data.leaderUid == request.auth.uid));
+      // Admin in same org can create; Team Leader can create their own team with their UID
+      allow create: if isAuthenticated() && 
+                    ((isAdmin() && request.resource.data.organizationId == getUserOrgId()) || 
+                     (request.resource.data.leaderUid == request.auth.uid && (isTeamLeader() || !hasUserData())));
+      allow delete: if isAuthenticated() && isAdmin() && resource.data.organizationId == getUserOrgId();
+      // Admin in same org can update; Team Leader can update non-protected fields for their own team
       allow update: if isAuthenticated() && 
-                     (isAdmin() || 
-                      (isTeamLeader() && 
-                       resource.data.leaderUid == request.auth.uid &&
-                       request.resource.data.panelId == resource.data.panelId));
+                    ((isAdmin() && resource.data.organizationId == getUserOrgId() && request.resource.data.organizationId == getUserOrgId()) || 
+                     (resource.data.leaderUid == request.auth.uid &&
+                      request.resource.data.leaderUid == resource.data.leaderUid &&
+                      request.resource.data.organizationId == resource.data.organizationId &&
+                      request.resource.data.panelId == resource.data.panelId &&
+                      request.resource.data.teamNumber == resource.data.teamNumber &&
+                      request.resource.data.status == resource.data.status));
     }
 
     // Event Registrations Collection
     match /eventRegistrations/{regId} {
-      allow read: if isAuthenticated() && (isAdmin() || (isTeamLeader() && resource.data.teamLeaderId == request.auth.uid));
-      // Admin or Team Leader can submit registration for their own team
+      // Direct ownership check FIRST allows Team Leader collection queries (.whereEqualTo("teamLeaderId", uid))
+      // to be statically authorized by Firestore security rules without triggering dynamic external document gets.
+      allow read: if isAuthenticated() && 
+                    ((resource.data.teamLeaderId == request.auth.uid || resource.data.createdById == request.auth.uid) ||
+                     (isAdmin() && resource.data.organizationId == getUserOrgId()) || 
+                     (isJudge() && isSameEventOrg(resource.data.eventId)));
+      // Admin in same org or Team Leader can submit registration for their own team
       allow create: if isAuthenticated() && 
-                     (isAdmin() || 
-                      (isTeamLeader() && request.resource.data.teamLeaderId == request.auth.uid));
-      // Admin can update status; Team leader can only cancel their own registration
+                    ((isAdmin() && request.resource.data.organizationId == getUserOrgId()) || 
+                     (request.resource.data.teamLeaderId == request.auth.uid || 
+                      request.resource.data.createdById == request.auth.uid));
+      // Admin can update status; Team Leader can only cancel their own registration
+      // Protected fields (eventId, teamId, teamLeaderId, organizationId, createdAt) must be frozen during cancellation
       allow update: if isAuthenticated() && 
-                     (isAdmin() || 
-                      (isTeamLeader() && 
-                       resource.data.teamLeaderId == request.auth.uid && 
-                       request.resource.data.status == 'CANCELLED'));
-      allow delete: if isAdmin();
+                    ((isAdmin() && resource.data.organizationId == getUserOrgId() && request.resource.data.organizationId == getUserOrgId()) || 
+                     ((resource.data.teamLeaderId == request.auth.uid || resource.data.createdById == request.auth.uid) && 
+                      resource.data.status != 'CANCELLED' && 
+                      request.resource.data.status == 'CANCELLED' &&
+                      request.resource.data.eventId == resource.data.eventId &&
+                      request.resource.data.teamId == resource.data.teamId &&
+                      request.resource.data.teamLeaderId == resource.data.teamLeaderId &&
+                      request.resource.data.organizationId == resource.data.organizationId &&
+                      request.resource.data.createdAt == resource.data.createdAt));
+      allow delete: if isAuthenticated() && isAdmin() && resource.data.organizationId == getUserOrgId();
     }
 
     // Evaluations Collection
     match /evaluations/{evalId} {
-      // Drafts can only be read by the evaluating judge or admin; submitted evaluations can be read by authenticated users
-      allow read: if isAuthenticated() && 
+      // Drafts can only be read by the evaluating judge or admin of same event org; submitted evaluations can be read by users within the same org
+      allow read: if isAuthenticated() && isSameEventOrg(resource.data.eventId) && 
                     (resource.data.status == 'SUBMITTED' || 
                      resource.data.judgeId == request.auth.uid || 
                      isAdmin());
-      // Judges and Admins can create evaluations; judgeId must match auth user
-      allow create: if isAuthenticated() && 
-                     (isAdmin() || (isJudge() && request.resource.data.judgeId == request.auth.uid));
+      // Judges and Admins can create evaluations; judgeId must match auth user and event must belong to same org
+      allow create: if isAuthenticated() && isSameEventOrg(request.resource.data.eventId) && 
+                     ((isAdmin() && request.resource.data.judgeId == request.auth.uid) || 
+                      (isJudge() && request.resource.data.judgeId == request.auth.uid));
       // Only Admin or the evaluating judge updating an in-progress DRAFT can modify; SUBMITTED evaluations cannot be edited by judges
-      allow update: if isAuthenticated() && 
+      allow update: if isAuthenticated() && isSameEventOrg(resource.data.eventId) && 
                      (isAdmin() || 
                       (isJudge() && 
                        resource.data.judgeId == request.auth.uid && 
                        resource.data.status == 'DRAFT'));
-      allow delete: if isAdmin();
+      allow delete: if isAuthenticated() && isAdmin() && isSameEventOrg(resource.data.eventId);
+    }
+
+    // Audit Logs Collection (managed by Cloud Functions and Admin actions)
+    match /audit_logs/{logId} {
+      // Only Admins within the same organization can view audit logs
+      allow read: if isAuthenticated() && isAdmin() && resource.data.organizationId == getUserOrgId();
+      // Admins within their organization can create audit logs; or Cloud Functions via Admin SDK
+      allow create: if isAuthenticated() && isAdmin() && request.resource.data.organizationId == getUserOrgId();
+      // Audit logs are strictly immutable: no client modifications or deletions allowed
+      allow update, delete: if false;
     }
   }
 }

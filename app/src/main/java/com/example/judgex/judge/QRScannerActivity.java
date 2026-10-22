@@ -18,6 +18,7 @@ import com.example.judgex.R;
 import com.example.judgex.data.FirebaseManager;
 import com.example.judgex.models.Evaluation;
 import com.example.judgex.models.Event;
+import com.example.judgex.models.EventRegistration;
 import com.example.judgex.models.Team;
 import com.example.judgex.models.User;
 import com.example.judgex.utils.Constants;
@@ -116,6 +117,7 @@ public class QRScannerActivity extends AppCompatActivity {
 
         showLoading("Validating team badge...");
 
+        String candidateRegId = null;
         String candidateTeamId = cleanedData;
         String scannedEventId = null;
         String scannedPanelId = null;
@@ -123,9 +125,15 @@ public class QRScannerActivity extends AppCompatActivity {
 
         try {
             JSONObject json = new JSONObject(cleanedData);
+            if (json.has("regId")) {
+                candidateRegId = json.getString("regId").trim();
+            } else if (json.has("registrationId")) {
+                candidateRegId = json.getString("registrationId").trim();
+            }
+
             if (json.has("teamId")) {
                 candidateTeamId = json.getString("teamId").trim();
-            } else if (json.has("id")) {
+            } else if (json.has("id") && candidateRegId == null) {
                 candidateTeamId = json.getString("id").trim();
             }
 
@@ -142,11 +150,90 @@ public class QRScannerActivity extends AppCompatActivity {
             // Raw text fallback
         }
 
+        if (candidateRegId == null && cleanedData.startsWith("REG-")) {
+            candidateRegId = cleanedData;
+        }
+
+        final String finalRegId = candidateRegId;
         final String finalTeamId = candidateTeamId;
         final String finalScannedEventId = scannedEventId;
         final String finalTeamNumber = scannedTeamNumber;
 
-        // Step 1: Look up team by document ID
+        if (finalRegId != null && !finalRegId.isEmpty()) {
+            // Step 1a: Registration-specific QR resolution (v3)
+            firebaseManager.getRegistration(finalRegId)
+                    .addOnSuccessListener(regDoc -> {
+                        if (!regDoc.exists()) {
+                            hideLoading();
+                            showErrorDialog("Invalid Registration QR",
+                                    "No event registration record found matching pass ID: " + finalRegId);
+                            return;
+                        }
+
+                        EventRegistration registration = regDoc.toObject(EventRegistration.class);
+                        if (registration == null) {
+                            hideLoading();
+                            showErrorDialog("Registration Error", "Failed to deserialize event registration data.");
+                            return;
+                        }
+                        registration.setId(regDoc.getId());
+
+                        if (registration.isCancelled()) {
+                            hideLoading();
+                            showErrorDialog("Registration Withdrawn",
+                                    "This team's registration for event '" + registration.getEventName() + "' was withdrawn or cancelled.");
+                            return;
+                        }
+
+                        if (registration.isRejected()) {
+                            hideLoading();
+                            showErrorDialog("Registration Rejected",
+                                    "This team's registration for event '" + registration.getEventName() + "' was rejected.");
+                            return;
+                        }
+
+                        if (registration.isPending()) {
+                            hideLoading();
+                            showErrorDialog("Registration Pending",
+                                    "This registration has not been confirmed yet (Status: PENDING APPROVAL).");
+                            return;
+                        }
+
+                        // Resolve associated team record or fall back to snapshot
+                        String targetTeamId = registration.getTeamId();
+                        firebaseManager.getTeam(targetTeamId)
+                                .addOnSuccessListener(tDoc -> {
+                                    Team team = tDoc.exists() ? tDoc.toObject(Team.class) : registration.getTeamSnapshot();
+                                    if (team != null) {
+                                        team.setId(tDoc.exists() ? tDoc.getId() : targetTeamId);
+                                        team.setEventId(registration.getEventId());
+                                        if (registration.getTeamNumber() != null && !registration.getTeamNumber().isEmpty()) {
+                                            team.setTeamNumber(registration.getTeamNumber());
+                                        }
+                                        if (registration.getTeamName() != null && !registration.getTeamName().isEmpty()) {
+                                            team.setTeamName(registration.getTeamName());
+                                        }
+                                        proceedWithValidatedTeam(team, registration.getEventId());
+                                    } else {
+                                        hideLoading();
+                                        showErrorDialog("Team Not Found", "The team linked to this registration could not be loaded.");
+                                    }
+                                })
+                                .addOnFailureListener(e -> {
+                                    Team snapshot = registration.getTeamSnapshot();
+                                    snapshot.setId(targetTeamId);
+                                    snapshot.setEventId(registration.getEventId());
+                                    proceedWithValidatedTeam(snapshot, registration.getEventId());
+                                });
+                    })
+                    .addOnFailureListener(e -> {
+                        hideLoading();
+                        showErrorDialog("Lookup Error", "Failed to resolve registration pass: " + e.getMessage());
+                    });
+            return;
+        }
+
+        // Step 1b: Fallback to looking up team by document ID (v2 legacy badges)
         firebaseManager.getTeam(finalTeamId)
                 .addOnSuccessListener(doc -> {
                     if (doc.exists()) {
@@ -158,7 +245,7 @@ public class QRScannerActivity extends AppCompatActivity {
                         }
                     }
 
-                    // Step 1b: Fallback to querying by teamNumber (e.g. if QR contained TM-01 instead of doc ID)
+                    // Fallback to querying by teamNumber
                     String lookupNumber = finalTeamNumber != null ? finalTeamNumber : finalTeamId;
                     firebaseManager.getTeamsCollection().whereEqualTo("teamNumber", lookupNumber).limit(1).get()
                             .addOnSuccessListener(querySnapshot -> {

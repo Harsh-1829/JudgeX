@@ -12,6 +12,7 @@ public class TeamMember implements Serializable {
     private String yearOfStudy;
     private String phone;
     private String roleInTeam; // e.g. Leader, Developer, Designer, Researcher
+    private String school; // e.g. STME, SOC, SPTM, SBM, SOL
     private boolean isLeader;
     private boolean confirmed;
 
@@ -114,6 +115,14 @@ public class TeamMember implements Serializable {
 
     public void setConfirmed(boolean confirmed) {
         this.confirmed = confirmed;
+    }
+
+    public String getSchool() {
+        return school;
+    }
+
+    public void setSchool(String school) {
+        this.school = school != null ? school.trim().toUpperCase(java.util.Locale.US) : null;
     }
 
     @Override

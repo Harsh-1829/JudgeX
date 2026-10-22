@@ -101,22 +101,43 @@
 
                     </com.google.android.material.textfield.TextInputLayout>
 
-                    <!-- College / Organization Selection -->
+                    <!-- Year of Study Selection -->
                     <com.google.android.material.textfield.TextInputLayout
-                        android:id="@+id/tilOrgName"
-                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                        android:id="@+id/tilYearOfStudy"
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="14dp"
-                        android:hint="College / Institution Name"
+                        android:hint="Year of Study"
                         app:boxStrokeColor="@color/accent"
                         app:hintTextColor="@color/accent">
 
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/etOrgName"
+                        <AutoCompleteTextView
+                            android:id="@+id/actvYearOfStudy"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:inputType="textCapWords"
+                            android:inputType="none"
+                            android:textColor="@color/text_primary"
+                            android:textSize="15sp" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <!-- School Selection -->
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/tilSchool"
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
+                        android:hint="School"
+                        app:boxStrokeColor="@color/accent"
+                        app:hintTextColor="@color/accent">
+
+                        <AutoCompleteTextView
+                            android:id="@+id/actvSchool"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="none"
                             android:textColor="@color/text_primary"
                             android:textSize="15sp" />
 
@@ -138,99 +159,6 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:inputType="textEmailAddress"
-                            android:textColor="@color/text_primary"
-                            android:textSize="15sp" />
-
-                    </com.google.android.material.textfield.TextInputLayout>
-
-                    <!-- Department & Roll Number Row -->
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="14dp"
-                        android:orientation="horizontal">
-
-                        <com.google.android.material.textfield.TextInputLayout
-                            android:id="@+id/tilDepartment"
-                            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginEnd="6dp"
-                            android:layout_weight="1"
-                            android:hint="Department"
-                            app:boxStrokeColor="@color/accent"
-                            app:hintTextColor="@color/accent">
-
-                            <com.google.android.material.textfield.TextInputEditText
-                                android:id="@+id/etDepartment"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:inputType="textCapCharacters"
-                                android:textColor="@color/text_primary"
-                                android:textSize="15sp" />
-
-                        </com.google.android.material.textfield.TextInputLayout>
-
-                        <com.google.android.material.textfield.TextInputLayout
-                            android:id="@+id/tilRollNumber"
-                            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="6dp"
-                            android:layout_weight="1"
-                            android:hint="Roll No / Student ID"
-                            app:boxStrokeColor="@color/accent"
-                            app:hintTextColor="@color/accent">
-
-                            <com.google.android.material.textfield.TextInputEditText
-                                android:id="@+id/etRollNumber"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:inputType="textCapCharacters"
-                                android:textColor="@color/text_primary"
-                                android:textSize="15sp" />
-
-                        </com.google.android.material.textfield.TextInputLayout>
-
-                    </LinearLayout>
-
-                    <!-- Phone Number Input -->
-                    <com.google.android.material.textfield.TextInputLayout
-                        android:id="@+id/tilPhone"
-                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="14dp"
-                        android:hint="Phone Number (Optional)"
-                        app:boxStrokeColor="@color/accent"
-                        app:hintTextColor="@color/accent">
-
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/etPhone"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:inputType="phone"
-                            android:textColor="@color/text_primary"
-                            android:textSize="15sp" />
-
-                    </com.google.android.material.textfield.TextInputLayout>
-
-                    <!-- Team Name Input -->
-                    <com.google.android.material.textfield.TextInputLayout
-                        android:id="@+id/tilTeamName"
-                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="14dp"
-                        android:hint="Initial Team Name"
-                        app:boxStrokeColor="@color/accent"
-                        app:hintTextColor="@color/accent">
-
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/etTeamName"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:inputType="textCapWords"
                             android:textColor="@color/text_primary"
                             android:textSize="15sp" />
 
@@ -275,6 +203,27 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:inputType="textPassword"
+                            android:textColor="@color/text_primary"
+                            android:textSize="15sp" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <!-- Team Name Input -->
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/tilTeamName"
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
+                        android:hint="Team Name"
+                        app:boxStrokeColor="@color/accent"
+                        app:hintTextColor="@color/accent">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etTeamName"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="textCapWords"
                             android:textColor="@color/text_primary"
                             android:textSize="15sp" />
 

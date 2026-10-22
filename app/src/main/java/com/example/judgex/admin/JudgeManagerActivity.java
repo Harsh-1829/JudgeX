@@ -285,7 +285,7 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
         String[] options = {
                 "View Profile Details",
                 "Edit Judge Name",
-                "Send Password Reset Email",
+                "Change Password",
                 "Assign / Reassign Panel",
                 "Remove from This Event",
                 statusLabel,
@@ -303,7 +303,7 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
                             showEditJudgeNameDialog(judge);
                             break;
                         case 2:
-                            sendPasswordResetForJudge(judge);
+                            showChangeJudgePasswordDialog(judge);
                             break;
                         case 3:
                             showReassignDialog(judge);
@@ -347,9 +347,9 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
                 .setTitle("Judge Profile & Account")
                 .setMessage(details.toString())
                 .setPositiveButton("Close", (dialog, which) -> dialog.dismiss())
-                .setNeutralButton("Reset Password", (dialog, which) -> {
+                .setNeutralButton("Change Password", (dialog, which) -> {
                     dialog.dismiss();
-                    sendPasswordResetForJudge(judge);
+                    showChangeJudgePasswordDialog(judge);
                 })
                 .show();
     }
@@ -390,35 +390,103 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
                 .show();
     }
 
-    private void sendPasswordResetForJudge(User judge) {
+    private void showChangeJudgePasswordDialog(User judge) {
         String email = judge.getEmail();
+        String name = judge.getName() != null ? judge.getName() : "Judge";
         if (TextUtils.isEmpty(email)) {
             UIUtils.showToast(this, "This judge does not have a registered email address.");
             return;
         }
 
-        new AlertDialog.Builder(this)
-                .setTitle("Send Password Reset Email")
-                .setMessage("Send an official Firebase Authentication password-reset email to:\n\n" + email +
-                        "\n\nThe judge will receive a secure email link allowing them to choose a new password. No temporary password will be stored or exposed.")
-                .setPositiveButton("Send Reset Email", (dialog, which) -> {
-                    Dialog loading = UIUtils.showLoadingDialog(this, "Sending reset email...");
-                    FirebaseAuth.getInstance().sendPasswordResetEmail(email.trim())
-                            .addOnSuccessListener(aVoid -> {
-                                loading.dismiss();
-                                UIUtils.showToast(this, "Password reset email sent to " + email);
-                            })
-                            .addOnFailureListener(e -> {
-                                loading.dismiss();
-                                new AlertDialog.Builder(this)
-                                        .setTitle("Password Reset Failed")
-                                        .setMessage("Could not send password reset email:\n\n" + e.getMessage())
-                                        .setPositiveButton("OK", (d, w) -> d.dismiss())
-                                        .show();
-                            });
+        android.widget.LinearLayout container = new android.widget.LinearLayout(this);
+        container.setOrientation(android.widget.LinearLayout.VERTICAL);
+        container.setPadding(50, 20, 50, 10);
+
+        TextView tvInfo = new TextView(this);
+        tvInfo.setText("Set a new password for:\n👤 " + name + "\n📧 " + email);
+        tvInfo.setTextSize(14f);
+        tvInfo.setPadding(0, 0, 0, 24);
+        container.addView(tvInfo);
+
+        TextInputLayout tilNewPass = new TextInputLayout(this);
+        tilNewPass.setHint("New Password (min 6 characters)");
+        tilNewPass.setEndIconMode(TextInputLayout.END_ICON_PASSWORD_TOGGLE);
+        TextInputEditText etNewPass = new TextInputEditText(this);
+        etNewPass.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        tilNewPass.addView(etNewPass);
+        container.addView(tilNewPass);
+
+        TextInputLayout tilConfirmPass = new TextInputLayout(this);
+        tilConfirmPass.setHint("Confirm New Password");
+        tilConfirmPass.setEndIconMode(TextInputLayout.END_ICON_PASSWORD_TOGGLE);
+        TextInputEditText etConfirmPass = new TextInputEditText(this);
+        etConfirmPass.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        tilConfirmPass.addView(etConfirmPass);
+        container.addView(tilConfirmPass);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Change Password")
+                .setView(container)
+                .setPositiveButton("Change Password", null)
+                .setNegativeButton("Cancel", (d, w) -> d.dismiss())
+                .create();
+
+        dialog.setOnShowListener(d -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String newPass = etNewPass.getText() != null ? etNewPass.getText().toString() : "";
+                String confirmPass = etConfirmPass.getText() != null ? etConfirmPass.getText().toString() : "";
+
+                if (TextUtils.isEmpty(newPass)) {
+                    tilNewPass.setError("Password cannot be empty");
+                    return;
+                }
+                if (newPass.length() < 6) {
+                    tilNewPass.setError("Password must be at least 6 characters");
+                    return;
+                }
+                tilNewPass.setError(null);
+
+                if (!newPass.equals(confirmPass)) {
+                    tilConfirmPass.setError("Passwords do not match");
+                    return;
+                }
+                tilConfirmPass.setError(null);
+
+                new AlertDialog.Builder(this)
+                        .setTitle("Confirm Password Change")
+                        .setMessage("Are you sure you want to change the password for:\n\n" + name + " (" + email + ")?")
+                        .setPositiveButton("Yes, Change", (confirmDialog, which) -> {
+                            dialog.dismiss();
+                            executeChangeJudgePassword(judge, newPass);
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show();
+            });
+        });
+
+        dialog.show();
+    }
+
+    private void executeChangeJudgePassword(User judge, String newPassword) {
+        Dialog loading = UIUtils.showLoadingDialog(this, "Updating password via backend...");
+
+        firebaseManager.adminChangeUserPassword(judge.getUid(), newPassword)
+                .addOnSuccessListener(msg -> {
+                    loading.dismiss();
+                    new AlertDialog.Builder(this)
+                            .setTitle("Password Changed")
+                            .setMessage("Successfully changed password for " + judge.getEmail() + ".\n\n" + msg)
+                            .setPositiveButton("OK", null)
+                            .show();
                 })
-                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
-                .show();
+                .addOnFailureListener(e -> {
+                    loading.dismiss();
+                    new AlertDialog.Builder(this)
+                            .setTitle("Password Change Failed")
+                            .setMessage("Could not change password:\n\n" + e.getMessage())
+                            .setPositiveButton("OK", null)
+                            .show();
+                });
     }
 
     private void handleRemoveJudgeFromEvent(User judge) {

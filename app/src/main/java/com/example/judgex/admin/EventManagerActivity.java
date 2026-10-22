@@ -28,7 +28,9 @@ import com.example.judgex.utils.Constants;
 import com.example.judgex.utils.UIUtils;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.checkbox.MaterialCheckBox;
+import com.google.android.material.chip.Chip;
 import com.google.android.material.chip.ChipGroup;
+import android.widget.CompoundButton;
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
@@ -232,6 +234,82 @@ public class EventManagerActivity extends AppCompatActivity implements EventAdap
             etEndTime.setText("05:00 PM");
         }
 
+        Chip chipSchoolAll = view.findViewById(R.id.chipSchoolAll);
+        Chip chipSchoolSTME = view.findViewById(R.id.chipSchoolSTME);
+        Chip chipSchoolSOC = view.findViewById(R.id.chipSchoolSOC);
+        Chip chipSchoolSPTM = view.findViewById(R.id.chipSchoolSPTM);
+        Chip chipSchoolSBM = view.findViewById(R.id.chipSchoolSBM);
+        Chip chipSchoolSOL = view.findViewById(R.id.chipSchoolSOL);
+
+        if (isEdit && existingEvent != null) {
+            String scope = existingEvent.getSchoolScope();
+            List<String> eligible = existingEvent.getEligibleSchools();
+            if (Event.SCOPE_SELECTED_SCHOOLS.equalsIgnoreCase(scope) && eligible != null && !eligible.isEmpty()) {
+                chipSchoolAll.setChecked(false);
+                chipSchoolSTME.setChecked(eligible.contains(Event.SCHOOL_STME));
+                chipSchoolSOC.setChecked(eligible.contains(Event.SCHOOL_SOC));
+                chipSchoolSPTM.setChecked(eligible.contains(Event.SCHOOL_SPTM));
+                chipSchoolSBM.setChecked(eligible.contains(Event.SCHOOL_SBM));
+                chipSchoolSOL.setChecked(eligible.contains(Event.SCHOOL_SOL));
+            } else {
+                chipSchoolAll.setChecked(true);
+                chipSchoolSTME.setChecked(false);
+                chipSchoolSOC.setChecked(false);
+                chipSchoolSPTM.setChecked(false);
+                chipSchoolSBM.setChecked(false);
+                chipSchoolSOL.setChecked(false);
+            }
+        } else {
+            chipSchoolAll.setChecked(true);
+            chipSchoolSTME.setChecked(false);
+            chipSchoolSOC.setChecked(false);
+            chipSchoolSPTM.setChecked(false);
+            chipSchoolSBM.setChecked(false);
+            chipSchoolSOL.setChecked(false);
+        }
+
+        final boolean[] isUpdatingChips = new boolean[]{false};
+        CompoundButton.OnCheckedChangeListener individualListener = (btn, isChecked) -> {
+            if (isUpdatingChips[0]) return;
+            if (isChecked) {
+                isUpdatingChips[0] = true;
+                chipSchoolAll.setChecked(false);
+                isUpdatingChips[0] = false;
+            } else {
+                if (!chipSchoolSTME.isChecked() && !chipSchoolSOC.isChecked()
+                        && !chipSchoolSPTM.isChecked() && !chipSchoolSBM.isChecked() && !chipSchoolSOL.isChecked()) {
+                    isUpdatingChips[0] = true;
+                    chipSchoolAll.setChecked(true);
+                    isUpdatingChips[0] = false;
+                }
+            }
+        };
+        chipSchoolSTME.setOnCheckedChangeListener(individualListener);
+        chipSchoolSOC.setOnCheckedChangeListener(individualListener);
+        chipSchoolSPTM.setOnCheckedChangeListener(individualListener);
+        chipSchoolSBM.setOnCheckedChangeListener(individualListener);
+        chipSchoolSOL.setOnCheckedChangeListener(individualListener);
+
+        chipSchoolAll.setOnCheckedChangeListener((btn, isChecked) -> {
+            if (isUpdatingChips[0]) return;
+            if (isChecked) {
+                isUpdatingChips[0] = true;
+                chipSchoolSTME.setChecked(false);
+                chipSchoolSOC.setChecked(false);
+                chipSchoolSPTM.setChecked(false);
+                chipSchoolSBM.setChecked(false);
+                chipSchoolSOL.setChecked(false);
+                isUpdatingChips[0] = false;
+            } else {
+                if (!chipSchoolSTME.isChecked() && !chipSchoolSOC.isChecked()
+                        && !chipSchoolSPTM.isChecked() && !chipSchoolSBM.isChecked() && !chipSchoolSOL.isChecked()) {
+                    isUpdatingChips[0] = true;
+                    chipSchoolAll.setChecked(true);
+                    isUpdatingChips[0] = false;
+                }
+            }
+        });
+
         etEventDate.setFocusable(false);
         etEventDate.setClickable(true);
         etStartTime.setFocusable(false);
@@ -361,6 +439,24 @@ public class EventManagerActivity extends AppCompatActivity implements EventAdap
                 String scoringType = rbScoringRaw.isChecked() ? Event.SCORING_RAW : Event.SCORING_WEIGHTED;
                 boolean isAnonymous = cbAnonymousJudging.isChecked();
 
+                String schoolScope;
+                List<String> eligibleSchools = new ArrayList<>();
+                if (chipSchoolAll.isChecked()) {
+                    schoolScope = Event.SCOPE_ALL_SCHOOLS;
+                    eligibleSchools.addAll(Event.ALL_SUPPORTED_SCHOOLS);
+                } else {
+                    schoolScope = Event.SCOPE_SELECTED_SCHOOLS;
+                    if (chipSchoolSTME.isChecked()) eligibleSchools.add(Event.SCHOOL_STME);
+                    if (chipSchoolSOC.isChecked()) eligibleSchools.add(Event.SCHOOL_SOC);
+                    if (chipSchoolSPTM.isChecked()) eligibleSchools.add(Event.SCHOOL_SPTM);
+                    if (chipSchoolSBM.isChecked()) eligibleSchools.add(Event.SCHOOL_SBM);
+                    if (chipSchoolSOL.isChecked()) eligibleSchools.add(Event.SCHOOL_SOL);
+                    if (eligibleSchools.isEmpty()) {
+                        schoolScope = Event.SCOPE_ALL_SCHOOLS;
+                        eligibleSchools.addAll(Event.ALL_SUPPORTED_SCHOOLS);
+                    }
+                }
+
                 dialog.dismiss();
                 Dialog loadingDialog = UIUtils.showLoadingDialog(this, isEdit ? "Updating event..." : "Creating event...");
 
@@ -373,6 +469,8 @@ public class EventManagerActivity extends AppCompatActivity implements EventAdap
                     existingEvent.setStartTime(startTime);
                     existingEvent.setEndTime(endTime);
                     existingEvent.setVenue(venue);
+                    existingEvent.setSchoolScope(schoolScope);
+                    existingEvent.setEligibleSchools(eligibleSchools);
 
                     firebaseManager.updateEvent(existingEvent)
                             .addOnSuccessListener(aVoid -> {
@@ -397,6 +495,9 @@ public class EventManagerActivity extends AppCompatActivity implements EventAdap
                     newEvent.setStartTime(startTime);
                     newEvent.setEndTime(endTime);
                     newEvent.setVenue(venue);
+                    newEvent.setSchoolScope(schoolScope);
+                    newEvent.setEligibleSchools(eligibleSchools);
+                    newEvent.setPublished(true);
 
                     if (orgId != null) {
                         newEvent.setOrganizationId(orgId);

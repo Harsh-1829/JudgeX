@@ -178,6 +178,75 @@
 
         </RadioGroup>
 
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="Eligible Schools"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="Select schools eligible to participate in this event."
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/chipGroupSchools"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            app:singleSelection="false">
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipSchoolAll"
+                style="@style/Widget.MaterialComponents.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="All Schools" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipSchoolSTME"
+                style="@style/Widget.MaterialComponents.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="STME" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipSchoolSOC"
+                style="@style/Widget.MaterialComponents.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="SOC" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipSchoolSPTM"
+                style="@style/Widget.MaterialComponents.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="SPTM" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipSchoolSBM"
+                style="@style/Widget.MaterialComponents.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="SBM" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipSchoolSOL"
+                style="@style/Widget.MaterialComponents.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="SOL" />
+
+        </com.google.android.material.chip.ChipGroup>
+
         <com.google.android.material.checkbox.MaterialCheckBox
             android:id="@+id/cbAnonymousJudging"
             android:layout_width="match_parent"

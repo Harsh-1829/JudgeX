@@ -66,6 +66,7 @@ public class TeamLeaderDashboardActivity extends AppCompatActivity {
     private Team currentTeam;
     private Event currentEvent;
     private Panel currentPanel;
+    private EventRegistration currentRegistration;
     private Bitmap qrBitmap;
     private final java.text.SimpleDateFormat dateFormat = new java.text.SimpleDateFormat("MMM dd", java.util.Locale.US);
 
@@ -152,7 +153,11 @@ public class TeamLeaderDashboardActivity extends AppCompatActivity {
 
         btnShareQR.setOnClickListener(v -> sharePass());
         btnFullScreenQR.setOnClickListener(v -> {
-            if (currentTeam != null) {
+            if (currentRegistration != null) {
+                Intent intent = new Intent(TeamLeaderDashboardActivity.this, QRViewActivity.class);
+                intent.putExtra(Constants.EXTRA_REGISTRATION, currentRegistration);
+                startActivity(intent);
+            } else if (currentTeam != null) {
                 Intent intent = new Intent(TeamLeaderDashboardActivity.this, QRViewActivity.class);
                 intent.putExtra(Constants.EXTRA_TEAM, currentTeam);
                 startActivity(intent);
@@ -330,10 +335,21 @@ public class TeamLeaderDashboardActivity extends AppCompatActivity {
             tvRegistrationBadge.setTextColor(ContextCompat.getColor(this, R.color.success));
         }
 
+        currentRegistration = null;
         renderQRCode();
 
-        // Load Event Details
+        // Load Event Details & Registration
         if (team.getEventId() != null && !team.getEventId().isEmpty()) {
+            String regId = EventRegistration.generateRegistrationId(team.getEventId(), team.getId());
+            firebaseManager.getRegistration(regId).addOnSuccessListener(regDoc -> {
+                if (regDoc.exists()) {
+                    currentRegistration = regDoc.toObject(EventRegistration.class);
+                    if (currentRegistration != null) {
+                        currentRegistration.setId(regDoc.getId());
+                        renderQRCode();
+                    }
+                }
+            });
             firebaseManager.getEvent(team.getEventId())
                     .addOnSuccessListener(eDoc -> {
                         if (eDoc.exists()) {
@@ -482,11 +498,23 @@ public class TeamLeaderDashboardActivity extends AppCompatActivity {
 
     private void renderQRCode() {
         if (currentTeam == null) return;
-        String qrPayload = currentTeam.getQrCodeData();
+        String qrPayload = null;
+        if (currentRegistration != null) {
+            qrPayload = currentRegistration.getQrCodeData();
+            if (qrPayload == null || qrPayload.isEmpty()) {
+                qrPayload = currentRegistration.buildRegistrationQrPayload();
+            }
+        }
+        if (qrPayload == null || qrPayload.isEmpty()) {
+            qrPayload = currentTeam.getQrCodeData();
+        }
         if (qrPayload == null || qrPayload.isEmpty() || !qrPayload.startsWith("{")) {
             try {
                 JSONObject json = new JSONObject();
-                json.put("v", 2);
+                json.put("v", 3);
+                if (currentTeam.getEventId() != null && !currentTeam.getEventId().isEmpty()) {
+                    json.put("regId", EventRegistration.generateRegistrationId(currentTeam.getEventId(), currentTeam.getId()));
+                }
                 json.put("teamId", currentTeam.getId());
                 json.put("teamNumber", currentTeam.getTeamNumber());
                 json.put("teamName", currentTeam.getTeamName());
@@ -524,15 +552,19 @@ public class TeamLeaderDashboardActivity extends AppCompatActivity {
         // Query published events for the leader's organization
         firebaseManager.getPublishedEventsForOrganization(orgId)
                 .addOnSuccessListener(eventsList -> {
-                    int availableCount = eventsList.size();
+                    String leaderSchool = currentLeader != null ? currentLeader.getSchool() : null;
+                    int availableCount = 0;
                     long now = System.currentTimeMillis();
                     long nearestUpcoming = Long.MAX_VALUE;
 
                     for (Event ev : eventsList) {
                         if (ev != null) {
-                            long date = ev.getScheduledDate();
-                            if (date > now && date < nearestUpcoming) {
-                                nearestUpcoming = date;
+                            if (leaderSchool == null || ev.isSchoolEligible(leaderSchool)) {
+                                availableCount++;
+                                long date = ev.getScheduledDate();
+                                if (date > now && date < nearestUpcoming) {
+                                    nearestUpcoming = date;
+                                }
                             }
                         }
                     }

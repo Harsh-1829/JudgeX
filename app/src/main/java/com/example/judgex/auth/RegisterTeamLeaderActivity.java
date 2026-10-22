@@ -4,6 +4,8 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.View;
+import android.widget.ArrayAdapter;
+import android.widget.AutoCompleteTextView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
@@ -11,6 +13,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.judgex.R;
 import com.example.judgex.data.FirebaseManager;
+import com.example.judgex.models.Event;
 import com.example.judgex.team.TeamLeaderDashboardActivity;
 import com.example.judgex.utils.UIUtils;
 import com.google.android.material.appbar.MaterialToolbar;
@@ -19,11 +22,31 @@ import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 import com.google.firebase.auth.FirebaseAuthUserCollisionException;
 
+import java.util.Arrays;
+import java.util.List;
+
 public class RegisterTeamLeaderActivity extends AppCompatActivity {
 
+    public static final String[] SCHOOL_OPTIONS = new String[]{
+            Event.SCHOOL_STME,
+            Event.SCHOOL_SOC,
+            Event.SCHOOL_SPTM,
+            Event.SCHOOL_SBM,
+            Event.SCHOOL_SOL
+    };
+
+    public static final String[] YEAR_OPTIONS = new String[]{
+            "1st Year",
+            "2nd Year",
+            "3rd Year",
+            "4th Year",
+            "5th Year / PG"
+    };
+
     private MaterialToolbar toolbar;
-    private TextInputLayout tilLeaderName, tilOrgName, tilEmail, tilDepartment, tilRollNumber, tilPhone, tilTeamName, tilPassword, tilConfirmPassword;
-    private TextInputEditText etLeaderName, etOrgName, etEmail, etDepartment, etRollNumber, etPhone, etTeamName, etPassword, etConfirmPassword;
+    private TextInputLayout tilLeaderName, tilYearOfStudy, tilSchool, tilEmail, tilPassword, tilConfirmPassword, tilTeamName;
+    private TextInputEditText etLeaderName, etEmail, etPassword, etConfirmPassword, etTeamName;
+    private AutoCompleteTextView actvYearOfStudy, actvSchool;
     private TextView tvErrorMessage, tvBackToLogin;
     private ProgressBar progressBar;
     private MaterialButton btnRegister;
@@ -36,29 +59,26 @@ public class RegisterTeamLeaderActivity extends AppCompatActivity {
         setContentView(R.layout.activity_register_team_leader);
 
         initViews();
+        setupDropdowns();
     }
 
     private void initViews() {
         toolbar = findViewById(R.id.toolbar);
         tilLeaderName = findViewById(R.id.tilLeaderName);
-        tilOrgName = findViewById(R.id.tilOrgName);
+        tilYearOfStudy = findViewById(R.id.tilYearOfStudy);
+        tilSchool = findViewById(R.id.tilSchool);
         tilEmail = findViewById(R.id.tilEmail);
-        tilDepartment = findViewById(R.id.tilDepartment);
-        tilRollNumber = findViewById(R.id.tilRollNumber);
-        tilPhone = findViewById(R.id.tilPhone);
-        tilTeamName = findViewById(R.id.tilTeamName);
         tilPassword = findViewById(R.id.tilPassword);
         tilConfirmPassword = findViewById(R.id.tilConfirmPassword);
+        tilTeamName = findViewById(R.id.tilTeamName);
 
         etLeaderName = findViewById(R.id.etLeaderName);
-        etOrgName = findViewById(R.id.etOrgName);
+        actvYearOfStudy = findViewById(R.id.actvYearOfStudy);
+        actvSchool = findViewById(R.id.actvSchool);
         etEmail = findViewById(R.id.etEmail);
-        etDepartment = findViewById(R.id.etDepartment);
-        etRollNumber = findViewById(R.id.etRollNumber);
-        etPhone = findViewById(R.id.etPhone);
-        etTeamName = findViewById(R.id.etTeamName);
         etPassword = findViewById(R.id.etPassword);
         etConfirmPassword = findViewById(R.id.etConfirmPassword);
+        etTeamName = findViewById(R.id.etTeamName);
 
         tvErrorMessage = findViewById(R.id.tvErrorMessage);
         tvBackToLogin = findViewById(R.id.tvBackToLogin);
@@ -70,22 +90,38 @@ public class RegisterTeamLeaderActivity extends AppCompatActivity {
         btnRegister.setOnClickListener(v -> handleRegistration());
     }
 
+    private void setupDropdowns() {
+        ArrayAdapter<String> yearAdapter = new ArrayAdapter<>(
+                this,
+                android.R.layout.simple_dropdown_item_1line,
+                YEAR_OPTIONS
+        );
+        actvYearOfStudy.setAdapter(yearAdapter);
+
+        ArrayAdapter<String> schoolAdapter = new ArrayAdapter<>(
+                this,
+                android.R.layout.simple_dropdown_item_1line,
+                SCHOOL_OPTIONS
+        );
+        actvSchool.setAdapter(schoolAdapter);
+    }
+
     private void handleRegistration() {
         String name = etLeaderName.getText() != null ? etLeaderName.getText().toString().trim() : "";
-        String orgName = etOrgName.getText() != null ? etOrgName.getText().toString().trim() : "";
+        String yearOfStudy = actvYearOfStudy.getText() != null ? actvYearOfStudy.getText().toString().trim() : "";
+        String school = actvSchool.getText() != null ? actvSchool.getText().toString().trim() : "";
         String rawEmail = etEmail.getText() != null ? etEmail.getText().toString().trim() : "";
-        String dept = etDepartment.getText() != null ? etDepartment.getText().toString().trim() : "";
-        String rollNo = etRollNumber.getText() != null ? etRollNumber.getText().toString().trim() : "";
-        String phone = etPhone.getText() != null ? etPhone.getText().toString().trim() : "";
-        String teamName = etTeamName.getText() != null ? etTeamName.getText().toString().trim() : "";
         String password = etPassword.getText() != null ? etPassword.getText().toString().trim() : "";
         String confirmPassword = etConfirmPassword.getText() != null ? etConfirmPassword.getText().toString().trim() : "";
+        String teamName = etTeamName.getText() != null ? etTeamName.getText().toString().trim() : "";
 
         tilLeaderName.setError(null);
-        tilOrgName.setError(null);
+        tilYearOfStudy.setError(null);
+        tilSchool.setError(null);
         tilEmail.setError(null);
         tilPassword.setError(null);
         tilConfirmPassword.setError(null);
+        tilTeamName.setError(null);
         tvErrorMessage.setVisibility(View.GONE);
 
         if (TextUtils.isEmpty(name) || name.length() < 2) {
@@ -94,15 +130,23 @@ public class RegisterTeamLeaderActivity extends AppCompatActivity {
             return;
         }
 
-        if (TextUtils.isEmpty(orgName) || orgName.length() < 2) {
-            tilOrgName.setError("College / Organization name is required");
-            etOrgName.requestFocus();
+        List<String> validYears = Arrays.asList(YEAR_OPTIONS);
+        if (TextUtils.isEmpty(yearOfStudy) || !validYears.contains(yearOfStudy)) {
+            tilYearOfStudy.setError("Please select a valid study year from the list");
+            actvYearOfStudy.requestFocus();
+            return;
+        }
+
+        List<String> validSchools = Arrays.asList(SCHOOL_OPTIONS);
+        if (TextUtils.isEmpty(school) || !validSchools.contains(school.toUpperCase())) {
+            tilSchool.setError("Please select a valid school (STME, SOC, SPTM, SBM, SOL)");
+            actvSchool.requestFocus();
             return;
         }
 
         String email = FirebaseManager.normalizeEmail(rawEmail);
         if (TextUtils.isEmpty(email) || !android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
-            tilEmail.setError("Enter a valid email address");
+            tilEmail.setError("Enter a valid institutional email address");
             etEmail.requestFocus();
             return;
         }
@@ -119,11 +163,15 @@ public class RegisterTeamLeaderActivity extends AppCompatActivity {
             return;
         }
 
+        if (TextUtils.isEmpty(teamName) || teamName.length() < 2) {
+            tilTeamName.setError("Team name is required (min 2 characters)");
+            etTeamName.requestFocus();
+            return;
+        }
+
         setLoading(true);
 
-        String orgId = "org_" + orgName.toLowerCase().replaceAll("[^a-z0-9]", "_");
-
-        firebaseManager.registerTeamLeaderAccount(name, email, password, orgId, orgName, dept, rollNo, phone, teamName)
+        firebaseManager.registerTeamLeaderAccount(name, email, password, school.toUpperCase(), yearOfStudy, teamName)
                 .addOnSuccessListener(leaderUser -> {
                     setLoading(false);
                     UIUtils.showToast(this, "Welcome, " + leaderUser.getName() + "! Team Leader account ready.");
@@ -148,14 +196,12 @@ public class RegisterTeamLeaderActivity extends AppCompatActivity {
         btnRegister.setEnabled(!isLoading);
         progressBar.setVisibility(isLoading ? View.VISIBLE : View.GONE);
         etLeaderName.setEnabled(!isLoading);
-        etOrgName.setEnabled(!isLoading);
+        actvYearOfStudy.setEnabled(!isLoading);
+        actvSchool.setEnabled(!isLoading);
         etEmail.setEnabled(!isLoading);
-        etDepartment.setEnabled(!isLoading);
-        etRollNumber.setEnabled(!isLoading);
-        etPhone.setEnabled(!isLoading);
-        etTeamName.setEnabled(!isLoading);
         etPassword.setEnabled(!isLoading);
         etConfirmPassword.setEnabled(!isLoading);
+        etTeamName.setEnabled(!isLoading);
     }
 
     private void showError(String message) {

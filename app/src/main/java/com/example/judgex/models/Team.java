@@ -19,6 +19,7 @@ public class Team implements Serializable {
     private String leaderUid;
     private int memberCount;
     private String qrCodeData;
+    private String school; // STME, SOC, SPTM, SBM, SOL
     private String organizationId;
     private java.util.List<TeamMember> members;
     private long updatedAt;
@@ -276,5 +277,13 @@ public class Team implements Serializable {
             if (clean.equalsIgnoreCase(m.getRollNumber())) return true;
         }
         return false;
+    }
+
+    public String getSchool() {
+        return school;
+    }
+
+    public void setSchool(String school) {
+        this.school = school != null ? school.trim().toUpperCase(java.util.Locale.US) : null;
     }
 }

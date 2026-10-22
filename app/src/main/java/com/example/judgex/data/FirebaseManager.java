@@ -30,6 +30,9 @@ import com.google.firebase.firestore.Query;
 import com.google.firebase.firestore.QuerySnapshot;
 import com.google.firebase.firestore.SetOptions;
 import com.google.firebase.firestore.WriteBatch;
+import com.google.firebase.functions.FirebaseFunctions;
+import com.google.firebase.functions.FirebaseFunctionsException;
+import com.google.firebase.functions.HttpsCallableResult;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -394,7 +397,12 @@ public class FirebaseManager {
     public Task<DocumentReference> createEvent(Event event) {
         DocumentReference docRef = db.collection(Constants.COLLECTION_EVENTS).document();
         event.setId(docRef.getId());
-        return docRef.set(event).continueWith(task -> docRef);
+        return docRef.set(event).continueWith(task -> {
+            if (!task.isSuccessful() && task.getException() != null) {
+                throw task.getException();
+            }
+            return docRef;
+        });
     }
 
     public Task<Void> updateEvent(Event event) {
@@ -425,7 +433,12 @@ public class FirebaseManager {
     public Task<DocumentReference> createPanel(Panel panel) {
         DocumentReference docRef = db.collection(Constants.COLLECTION_PANELS).document();
         panel.setId(docRef.getId());
-        return docRef.set(panel).continueWith(task -> docRef);
+        return docRef.set(panel).continueWith(task -> {
+            if (!task.isSuccessful() && task.getException() != null) {
+                throw task.getException();
+            }
+            return docRef;
+        });
     }
 
     public Task<Void> updatePanel(Panel panel) {
@@ -445,6 +458,11 @@ public class FirebaseManager {
     // --- Judge Management Operations ---
 
     public Task<QuerySnapshot> getAllJudges() {
+        if (currentUserProfile != null && currentUserProfile.getOrganizationId() != null && !currentUserProfile.getOrganizationId().isEmpty()) {
+            return db.collection(Constants.COLLECTION_USERS)
+                    .whereEqualTo("organizationId", currentUserProfile.getOrganizationId())
+                    .get();
+        }
         return db.collection(Constants.COLLECTION_USERS).get();
     }
 
@@ -572,7 +590,12 @@ public class FirebaseManager {
     public Task<DocumentReference> createCriterion(Criterion criterion) {
         DocumentReference docRef = db.collection(Constants.COLLECTION_CRITERIA).document();
         criterion.setId(docRef.getId());
-        return docRef.set(criterion).continueWith(task -> docRef);
+        return docRef.set(criterion).continueWith(task -> {
+            if (!task.isSuccessful() && task.getException() != null) {
+                throw task.getException();
+            }
+            return docRef;
+        });
     }
 
     public Task<Void> updateCriterion(Criterion criterion) {
@@ -599,10 +622,18 @@ public class FirebaseManager {
         DocumentReference docRef = db.collection(Constants.COLLECTION_TEAMS).document();
         team.setId(docRef.getId());
         return docRef.set(team).continueWithTask(task -> {
+            if (!task.isSuccessful() && task.getException() != null) {
+                throw task.getException();
+            }
             if (team.getPanelId() != null && !team.getPanelId().isEmpty()) {
                 return db.collection(Constants.COLLECTION_PANELS).document(team.getPanelId())
                         .update("teamIds", FieldValue.arrayUnion(team.getId()))
-                        .continueWith(t -> docRef);
+                        .continueWith(t -> {
+                            if (!t.isSuccessful() && t.getException() != null) {
+                                throw t.getException();
+                            }
+                            return docRef;
+                        });
             }
             return Tasks.forResult(docRef);
         });
@@ -956,9 +987,29 @@ public class FirebaseManager {
      * 3. Creates default team roster with leader as first member.
      * 4. Batches user profile and team initialization atomically.
      */
+    /**
+     * Registers a new Team Leader with required 7 fields:
+     * (Name, School, Year of Study, Email, Password, Confirm Password, Team Name).
+     */
+    public Task<User> registerTeamLeaderAccount(String name, String rawEmail, String password,
+                                               String school, String yearOfStudy, String defaultTeamName) {
+        String cleanSchool = school != null ? school.trim().toUpperCase(java.util.Locale.US) : "STME";
+        String cleanOrgId = "org_" + cleanSchool.toLowerCase(java.util.Locale.US);
+        String cleanOrgName = cleanSchool + " Institution";
+        return registerTeamLeaderAccount(name, rawEmail, password, cleanOrgId, cleanOrgName,
+                cleanSchool, "", "", defaultTeamName, cleanSchool, yearOfStudy);
+    }
+
     public Task<User> registerTeamLeaderAccount(String name, String rawEmail, String password,
                                                String orgId, String orgName, String dept,
                                                String rollNo, String phone, String defaultTeamName) {
+        return registerTeamLeaderAccount(name, rawEmail, password, orgId, orgName, dept, rollNo, phone, defaultTeamName, null, null);
+    }
+
+    public Task<User> registerTeamLeaderAccount(String name, String rawEmail, String password,
+                                               String orgId, String orgName, String dept,
+                                               String rollNo, String phone, String defaultTeamName,
+                                               String school, String yearOfStudy) {
         TaskCompletionSource<User> tcs = new TaskCompletionSource<>();
         final String normalizedEmail = normalizeEmail(rawEmail);
 
@@ -975,102 +1026,214 @@ public class FirebaseManager {
             return tcs.getTask();
         }
 
-        // Check if email already registered before calling Auth
-        db.collection(Constants.COLLECTION_USERS)
-                .whereEqualTo("email", normalizedEmail)
-                .limit(1)
-                .get()
-                .addOnSuccessListener(querySnapshot -> {
-                    if (querySnapshot != null && !querySnapshot.isEmpty()) {
-                        tcs.setException(new IllegalStateException("An account with this email address already exists."));
+        final String cleanName = name.trim();
+        final String cleanSchool = school != null ? school.trim().toUpperCase(java.util.Locale.US) : null;
+        final String cleanYear = yearOfStudy != null ? yearOfStudy.trim() : null;
+        final String cleanOrgId = (orgId != null && !orgId.trim().isEmpty())
+                ? orgId.trim()
+                : ("org_" + (cleanSchool != null ? cleanSchool.toLowerCase(java.util.Locale.US) : "default"));
+        final String cleanOrgName = (orgName != null && !orgName.trim().isEmpty()) ? orgName.trim() : "Institution";
+        final String cleanDept = dept != null ? dept.trim() : (cleanSchool != null ? cleanSchool : "");
+        final String cleanRollNo = rollNo != null ? rollNo.trim() : "";
+        final String cleanPhone = phone != null ? phone.trim() : "";
+        final String cleanTeamName = !TextUtils.isEmpty(defaultTeamName) ? defaultTeamName.trim() : (cleanName + "'s Team");
+
+        // Rely on Firebase Auth to enforce unique email registration natively without unauthenticated reads to /users
+        auth.createUserWithEmailAndPassword(normalizedEmail, password)
+                .addOnSuccessListener(authResult -> {
+                    FirebaseUser firebaseUser = authResult.getUser();
+                    if (firebaseUser == null) {
+                        tcs.setException(new IllegalStateException("Failed to initialize authentication session."));
                         return;
                     }
 
-                    auth.createUserWithEmailAndPassword(normalizedEmail, password)
-                            .addOnSuccessListener(authResult -> {
-                                FirebaseUser firebaseUser = authResult.getUser();
-                                if (firebaseUser == null) {
-                                    tcs.setException(new IllegalStateException("Failed to initialize authentication session."));
-                                    return;
-                                }
+                    String uid = firebaseUser.getUid();
+                    String teamId = db.collection(Constants.COLLECTION_TEAMS).document().getId();
 
-                                String uid = firebaseUser.getUid();
-                                String teamId = db.collection(Constants.COLLECTION_TEAMS).document().getId();
-
-                                // Prepare User
-                                User leaderUser = new User(uid, name, normalizedEmail, User.ROLE_TEAM_LEADER);
-                                leaderUser.setOrganizationId(orgId);
-                                leaderUser.setOrganizationName(orgName != null && !orgName.isEmpty() ? orgName : "Institution");
-                                leaderUser.setDepartment(dept);
-                                leaderUser.setRollNumber(rollNo);
-                                leaderUser.setPhone(phone);
-                                leaderUser.setAssignedTeamId(teamId);
-                                leaderUser.setStatus(User.STATUS_ACTIVE);
-                                leaderUser.setActive(true);
-
-                                // Prepare Initial Team
-                                String cleanTeamName = !TextUtils.isEmpty(defaultTeamName) ? defaultTeamName.trim() : (name + "'s Team");
-                                Team initialTeam = new Team();
-                                initialTeam.setId(teamId);
-                                initialTeam.setTeamName(cleanTeamName);
-                                initialTeam.setTeamNumber("TM-" + (int) (100 + Math.random() * 900));
-                                initialTeam.setLeaderName(name);
-                                initialTeam.setLeaderEmail(normalizedEmail);
-                                initialTeam.setLeaderUid(uid);
-                                initialTeam.setOrganizationId(orgId);
-                                initialTeam.setProjectTitle("Project " + cleanTeamName);
-                                initialTeam.setCategory("General");
-
-                                TeamMember leaderMember = new TeamMember(
-                                        java.util.UUID.randomUUID().toString(),
-                                        name, normalizedEmail, rollNo, dept, "Undergraduate", phone, true
-                                );
-                                initialTeam.addMember(leaderMember);
-
-                                WriteBatch batch = db.batch();
-                                batch.set(db.collection(Constants.COLLECTION_USERS).document(uid), leaderUser);
-                                batch.set(db.collection(Constants.COLLECTION_TEAMS).document(teamId), initialTeam);
-
-                                batch.commit()
-                                        .addOnSuccessListener(aVoid -> {
-                                            currentUserProfile = leaderUser;
-                                            tcs.setResult(leaderUser);
-                                        })
-                                        .addOnFailureListener(e -> {
-                                            firebaseUser.delete();
-                                            tcs.setException(e);
-                                        });
-                            })
-                            .addOnFailureListener(tcs::setException);
+                    if (isDummySchoolOrg(cleanOrgId)) {
+                        db.collection(Constants.COLLECTION_ORGANIZATIONS).limit(1).get()
+                                .addOnCompleteListener(orgSnapTask -> {
+                                    String resolvedOrgId = cleanOrgId;
+                                    String resolvedOrgName = cleanOrgName;
+                                    if (orgSnapTask.isSuccessful() && orgSnapTask.getResult() != null && !orgSnapTask.getResult().isEmpty()) {
+                                        DocumentSnapshot orgDoc = orgSnapTask.getResult().getDocuments().get(0);
+                                        if (orgDoc != null) {
+                                            String foundId = orgDoc.getString("id");
+                                            if (foundId == null || foundId.isEmpty()) {
+                                                foundId = orgDoc.getId();
+                                            }
+                                            if (foundId != null && !foundId.isEmpty()) {
+                                                resolvedOrgId = foundId;
+                                            }
+                                            String foundName = orgDoc.getString("name");
+                                            if (foundName != null && !foundName.isEmpty()) {
+                                                resolvedOrgName = foundName;
+                                            }
+                                        }
+                                    }
+                                    commitTeamLeaderProfileAndTeam(firebaseUser, uid, teamId, cleanName, normalizedEmail,
+                                            resolvedOrgId, resolvedOrgName, cleanDept, cleanSchool, cleanYear, cleanRollNo, cleanPhone, cleanTeamName, tcs);
+                                });
+                    } else {
+                        commitTeamLeaderProfileAndTeam(firebaseUser, uid, teamId, cleanName, normalizedEmail,
+                                cleanOrgId, cleanOrgName, cleanDept, cleanSchool, cleanYear, cleanRollNo, cleanPhone, cleanTeamName, tcs);
+                    }
                 })
                 .addOnFailureListener(tcs::setException);
 
         return tcs.getTask();
     }
 
-    public Task<List<Event>> getPublishedEventsForOrganization(String organizationId) {
-        return db.collection(Constants.COLLECTION_EVENTS).get()
-                .continueWith(task -> {
-                    List<Event> list = new ArrayList<>();
-                    if (!task.isSuccessful() || task.getResult() == null) return list;
-                    for (DocumentSnapshot doc : task.getResult().getDocuments()) {
-                        Event e = doc.toObject(Event.class);
-                        if (e != null && !e.isDeleted() && e.isPublished()) {
-                            e.setId(doc.getId());
-                            if (organizationId == null || organizationId.isEmpty()
-                                    || e.getOrganizationId() == null || e.getOrganizationId().isEmpty()
-                                    || organizationId.equals(e.getOrganizationId())) {
-                                list.add(e);
-                            }
+    private void commitTeamLeaderProfileAndTeam(FirebaseUser firebaseUser, String uid, String teamId,
+                                                String cleanName, String normalizedEmail,
+                                                String orgId, String orgName, String cleanDept,
+                                                String cleanSchool, String cleanYear, String cleanRollNo,
+                                                String cleanPhone, String cleanTeamName,
+                                                TaskCompletionSource<User> tcs) {
+        // Prepare User Profile
+        User leaderUser = new User(uid, cleanName, normalizedEmail, User.ROLE_TEAM_LEADER);
+        leaderUser.setOrganizationId(orgId);
+        leaderUser.setOrganizationName(orgName);
+        leaderUser.setDepartment(cleanDept);
+        leaderUser.setSchool(cleanSchool);
+        leaderUser.setYearOfStudy(cleanYear);
+        leaderUser.setRollNumber(cleanRollNo);
+        leaderUser.setPhone(cleanPhone);
+        leaderUser.setAssignedTeamId(teamId);
+        leaderUser.setStatus(User.STATUS_ACTIVE);
+        leaderUser.setActive(true);
+        leaderUser.setCreatedAt(System.currentTimeMillis());
+
+        // Prepare Initial Team Roster
+        Team initialTeam = new Team();
+        initialTeam.setId(teamId);
+        initialTeam.setTeamName(cleanTeamName);
+        initialTeam.setTeamNumber("TM-" + (int) (100 + Math.random() * 900));
+        initialTeam.setLeaderName(cleanName);
+        initialTeam.setLeaderEmail(normalizedEmail);
+        initialTeam.setLeaderUid(uid);
+        initialTeam.setSchool(cleanSchool);
+        initialTeam.setOrganizationId(orgId);
+        initialTeam.setProjectTitle("Project " + cleanTeamName);
+        initialTeam.setCategory("General");
+        initialTeam.setStatus(Team.STATUS_ACTIVE);
+        initialTeam.setCreatedAt(System.currentTimeMillis());
+        initialTeam.setUpdatedAt(System.currentTimeMillis());
+
+        TeamMember leaderMember = new TeamMember(
+                java.util.UUID.randomUUID().toString(),
+                cleanName, normalizedEmail, cleanRollNo, cleanDept, cleanYear != null ? cleanYear : "Undergraduate", cleanPhone, true
+        );
+        leaderMember.setSchool(cleanSchool);
+        initialTeam.addMember(leaderMember);
+
+        DocumentReference userRef = db.collection(Constants.COLLECTION_USERS).document(uid);
+        DocumentReference teamRef = db.collection(Constants.COLLECTION_TEAMS).document(teamId);
+
+        // Commit user profile first so Firestore security rules recognize the authenticated user as TEAM_LEADER
+        userRef.set(leaderUser)
+                .addOnSuccessListener(uVoid -> {
+                    teamRef.set(initialTeam)
+                            .addOnSuccessListener(tVoid -> {
+                                currentUserProfile = leaderUser;
+                                tcs.setResult(leaderUser);
+                            })
+                            .addOnFailureListener(teamErr -> {
+                                // Rollback: delete created user doc and delete auth user to prevent orphaned state
+                                userRef.delete().addOnCompleteListener(delUserTask -> {
+                                    firebaseUser.delete().addOnCompleteListener(delAuthTask -> {
+                                        auth.signOut();
+                                        currentUserProfile = null;
+                                        if (!delAuthTask.isSuccessful()) {
+                                            tcs.setException(new Exception("Failed to initialize initial team (" + teamErr.getMessage() + "), and auth account cleanup encountered an error: " + (delAuthTask.getException() != null ? delAuthTask.getException().getMessage() : "Unknown"), teamErr));
+                                        } else {
+                                            tcs.setException(new Exception("Failed to initialize initial team. Registration cancelled: " + teamErr.getMessage(), teamErr));
+                                        }
+                                    });
+                                });
+                            });
+                })
+                .addOnFailureListener(userErr -> {
+                    // Rollback: delete auth user to prevent orphaned auth record
+                    firebaseUser.delete().addOnCompleteListener(delAuthTask -> {
+                        auth.signOut();
+                        currentUserProfile = null;
+                        if (!delAuthTask.isSuccessful()) {
+                            tcs.setException(new Exception("Failed to initialize user profile (" + userErr.getMessage() + "), and auth account cleanup encountered an error: " + (delAuthTask.getException() != null ? delAuthTask.getException().getMessage() : "Unknown"), userErr));
+                        } else {
+                            tcs.setException(new Exception("Failed to initialize user profile: " + userErr.getMessage(), userErr));
                         }
-                    }
-                    return list;
+                    });
                 });
     }
 
+    public static boolean isDummySchoolOrg(String orgId) {
+        if (orgId == null || orgId.trim().isEmpty()) return true;
+        String clean = orgId.trim().toLowerCase(java.util.Locale.US);
+        return clean.equals("org_default") || clean.startsWith("org_stme") || clean.startsWith("org_soc")
+                || clean.startsWith("org_sptm") || clean.startsWith("org_sbm") || clean.startsWith("org_sol");
+    }
+
+    public Task<List<Event>> getPublishedEventsForOrganization(String organizationId) {
+        android.util.Log.d("JudgeX_BrowseEvents", "getPublishedEventsForOrganization initiated with orgId: '" + organizationId + "' (isDummy: " + isDummySchoolOrg(organizationId) + ")");
+        com.google.firebase.firestore.Query query = db.collection(Constants.COLLECTION_EVENTS);
+        boolean filterByOrg = organizationId != null && !organizationId.trim().isEmpty() && !isDummySchoolOrg(organizationId);
+        if (filterByOrg) {
+            query = query.whereEqualTo("organizationId", organizationId.trim());
+        }
+        return query.get().continueWith(task -> {
+            if (!task.isSuccessful()) {
+                Exception ex = task.getException();
+                android.util.Log.e("JudgeX_BrowseEvents", "Query failed in FirebaseManager: " + (ex != null ? ex.getMessage() : "Unknown"), ex);
+                throw ex != null ? ex : new Exception("Failed to query published events.");
+            }
+            List<Event> list = new ArrayList<>();
+            if (task.getResult() == null) {
+                android.util.Log.d("JudgeX_BrowseEvents", "Query returned null result");
+                return list;
+            }
+            int totalDocs = task.getResult().size();
+            int excludedUnpublished = 0;
+            int excludedOrg = 0;
+            for (DocumentSnapshot doc : task.getResult().getDocuments()) {
+                Event e = doc.toObject(Event.class);
+                if (e != null) {
+                    e.setId(doc.getId());
+                    if (e.isDeleted() || !e.isPublished()) {
+                        excludedUnpublished++;
+                        continue;
+                    }
+                    if (filterByOrg && e.getOrganizationId() != null && !e.getOrganizationId().trim().isEmpty()
+                            && !organizationId.trim().equals(e.getOrganizationId())) {
+                        excludedOrg++;
+                        continue;
+                    }
+                    list.add(e);
+                }
+            }
+            android.util.Log.d("JudgeX_BrowseEvents", "Query completed: TotalDocs=" + totalDocs 
+                    + ", ExcludedUnpublished=" + excludedUnpublished 
+                    + ", ExcludedOrg=" + excludedOrg 
+                    + ", EligiblePublishedList=" + list.size());
+            return list;
+        });
+    }
+
     public Task<QuerySnapshot> getTeamLeaderRegistrations(String teamLeaderId) {
+        String safeUid = (teamLeaderId != null && teamLeaderId.length() > 6) ? teamLeaderId.substring(0, 6) + "..." : teamLeaderId;
+        android.util.Log.d("JudgeX_Registrations", "Executing getTeamLeaderRegistrations query on collection '" 
+                + Constants.COLLECTION_REGISTRATIONS + "' with field 'teamLeaderId' == " + safeUid);
         return db.collection(Constants.COLLECTION_REGISTRATIONS)
                 .whereEqualTo("teamLeaderId", teamLeaderId)
+                .get();
+    }
+
+    public Task<QuerySnapshot> getRegistrationsByCreator(String creatorUid) {
+        String safeUid = (creatorUid != null && creatorUid.length() > 6) ? creatorUid.substring(0, 6) + "..." : creatorUid;
+        android.util.Log.d("JudgeX_Registrations", "Executing getRegistrationsByCreator fallback query on collection '" 
+                + Constants.COLLECTION_REGISTRATIONS + "' with field 'createdById' == " + safeUid);
+        return db.collection(Constants.COLLECTION_REGISTRATIONS)
+                .whereEqualTo("createdById", creatorUid)
                 .get();
     }
 
@@ -1087,62 +1250,143 @@ public class FirebaseManager {
     /**
      * Atomically registers a team for an event:
      * - Validates event existence, open status, deadline, and team size boundaries.
-     * - Ensures duplicate registrations for the same event and team are prevented.
-     * - Saves event registration snapshot and updates the team record.
+     * - Validates team ownership by authenticated leader and organization alignment.
+     * - Ensures duplicate active registrations for the same event and team are prevented.
+     * - Preserves multi-event participation without overwriting existing eventId on the team.
+     * - Saves event registration snapshot and updates the team record atomically.
      */
     public Task<Void> registerTeamForEvent(EventRegistration registration, Team team) {
         if (registration == null || team == null || registration.getEventId() == null || team.getId() == null) {
             return Tasks.forException(new IllegalArgumentException("Registration and team parameters cannot be null."));
         }
 
-        DocumentReference regRef = db.collection(Constants.COLLECTION_REGISTRATIONS).document(registration.getId());
-        DocumentReference teamRef = db.collection(Constants.COLLECTION_TEAMS).document(team.getId());
-        DocumentReference eventRef = db.collection(Constants.COLLECTION_EVENTS).document(registration.getEventId());
+        final String eventId = registration.getEventId();
+        final String teamId = team.getId();
+        final String regId = (registration.getId() != null && !registration.getId().trim().isEmpty())
+                ? registration.getId().trim()
+                : EventRegistration.generateRegistrationId(eventId, teamId);
+        registration.setId(regId);
+
+        DocumentReference regRef = db.collection(Constants.COLLECTION_REGISTRATIONS).document(regId);
+        DocumentReference teamRef = db.collection(Constants.COLLECTION_TEAMS).document(teamId);
+        DocumentReference eventRef = db.collection(Constants.COLLECTION_EVENTS).document(eventId);
 
         return db.runTransaction(transaction -> {
+            // Read operations must precede all writes in Firestore transactions
             DocumentSnapshot eventSnap = transaction.get(eventRef);
+            DocumentSnapshot teamSnap = transaction.get(teamRef);
+            DocumentSnapshot regSnap = transaction.get(regRef);
+
+            // 1. Verify Event
             if (!eventSnap.exists()) {
                 throw new IllegalStateException("Event not found or has been removed.");
             }
-
             Event event = eventSnap.toObject(Event.class);
-            if (event != null) {
-                event.setId(eventSnap.getId());
-                if (!event.isRegistrationOpen()) {
-                    throw new IllegalStateException("Registration for this event is closed or the deadline has passed.");
-                }
-
-                int memberCount = registration.getMemberCount();
-                if (memberCount < event.getMinTeamSize()) {
-                    throw new IllegalStateException("Team must have at least " + event.getMinTeamSize() + " members (current: " + memberCount + ").");
-                }
-                if (memberCount > event.getMaxTeamSize()) {
-                    throw new IllegalStateException("Team cannot exceed " + event.getMaxTeamSize() + " members (current: " + memberCount + ").");
-                }
-
-                // If event requires approval, set status to PENDING
-                if (event.isRegistrationApprovalRequired() && !EventRegistration.SOURCE_ADMIN.equals(registration.getRegistrationSource())) {
-                    registration.setStatus(EventRegistration.STATUS_PENDING);
-                } else if (registration.getStatus() == null || registration.getStatus().isEmpty()) {
-                    registration.setStatus(EventRegistration.STATUS_CONFIRMED);
-                }
+            if (event == null || event.isDeleted() || !event.isPublished()) {
+                throw new IllegalStateException("Event is not published or has been removed.");
+            }
+            if (!event.isRegistrationOpen()) {
+                throw new IllegalStateException("Registration for this event is closed or the deadline has passed.");
             }
 
-            // Check if registration doc already exists
-            DocumentSnapshot existingReg = transaction.get(regRef);
-            if (existingReg.exists()) {
-                EventRegistration existing = existingReg.toObject(EventRegistration.class);
+            // 2. Verify Team
+            if (!teamSnap.exists()) {
+                throw new IllegalStateException("Team does not exist or has been removed.");
+            }
+            Team existingTeam = teamSnap.toObject(Team.class);
+            if (existingTeam == null || existingTeam.isDeleted()) {
+                throw new IllegalStateException("Team record is invalid or has been deleted.");
+            }
+
+            // Verify School Eligibility
+            String teamSchool = existingTeam.getSchool();
+            if (teamSchool == null && currentUserProfile != null) {
+                teamSchool = currentUserProfile.getSchool();
+            }
+            if (!event.isSchoolEligible(teamSchool)) {
+                throw new IllegalStateException("School eligibility restriction: Your school (" 
+                        + (teamSchool != null ? teamSchool : "Unassigned") 
+                        + ") is not eligible to participate in this event.");
+            }
+
+            // Verify Team Leader ownership if current user is not an Admin
+            String currentUid = auth.getCurrentUser() != null ? auth.getCurrentUser().getUid() : "";
+            boolean isCurrentUserAdmin = currentUserProfile != null && currentUserProfile.isAdmin();
+            String teamLeaderUid = existingTeam.getLeaderUid();
+            if (teamLeaderUid == null || teamLeaderUid.isEmpty()) {
+                if (!isCurrentUserAdmin && currentUserProfile != null && existingTeam.getLeaderEmail() != null
+                        && existingTeam.getLeaderEmail().equalsIgnoreCase(currentUserProfile.getEmail())) {
+                    teamLeaderUid = currentUid;
+                } else if (!isCurrentUserAdmin) {
+                    teamLeaderUid = currentUid;
+                }
+            }
+            if (!isCurrentUserAdmin && (currentUid.isEmpty() || !currentUid.equals(teamLeaderUid))) {
+                throw new SecurityException("Unauthorized: You can only register teams that you lead.");
+            }
+
+            // Verify Organization match (allowing dummy school orgs like org_stme to seamlessly link to campus events)
+            boolean isDummyTeamOrg = isDummySchoolOrg(existingTeam.getOrganizationId());
+            if (!isDummyTeamOrg && event.getOrganizationId() != null && !event.getOrganizationId().isEmpty()
+                    && existingTeam.getOrganizationId() != null && !existingTeam.getOrganizationId().isEmpty()
+                    && !event.getOrganizationId().equals(existingTeam.getOrganizationId())) {
+                throw new IllegalStateException("Team and event belong to different organizations.");
+            }
+
+            // 3. Validate member boundaries
+            int memberCount = existingTeam.getMembers() != null && !existingTeam.getMembers().isEmpty()
+                    ? existingTeam.getMembers().size()
+                    : registration.getMemberCount();
+            if (memberCount < event.getMinTeamSize()) {
+                throw new IllegalStateException("Team must have at least " + event.getMinTeamSize() + " members (current: " + memberCount + ").");
+            }
+            if (memberCount > event.getMaxTeamSize()) {
+                throw new IllegalStateException("Team cannot exceed " + event.getMaxTeamSize() + " members (current: " + memberCount + ").");
+            }
+
+            // 4. Duplicate Active Registration check
+            if (regSnap.exists()) {
+                EventRegistration existing = regSnap.toObject(EventRegistration.class);
                 if (existing != null && !existing.isCancelled()) {
                     throw new IllegalStateException("This team is already registered for this event.");
                 }
             }
 
-            // Write registration record
+            // 5. Populate and write registration
+            String resolvedOrgId = (event.getOrganizationId() != null && !event.getOrganizationId().isEmpty())
+                    ? event.getOrganizationId()
+                    : existingTeam.getOrganizationId();
+            registration.setEventName(event.getName());
+            registration.setTeamName(existingTeam.getTeamName());
+            registration.setTeamNumber(existingTeam.getTeamNumber());
+            registration.setOrganizationId(resolvedOrgId);
+            registration.setTeamLeaderId(teamLeaderUid != null && !teamLeaderUid.isEmpty() ? teamLeaderUid : currentUid);
+            registration.setCreatedById(currentUid);
+            registration.setTeamLeaderName(existingTeam.getLeaderName());
+            registration.setTeamLeaderEmail(existingTeam.getLeaderEmail());
+            registration.setTeamSnapshot(existingTeam);
+
+            if (event.isRegistrationApprovalRequired() && !EventRegistration.SOURCE_ADMIN.equals(registration.getRegistrationSource())) {
+                registration.setStatus(EventRegistration.STATUS_PENDING);
+            } else if (registration.getStatus() == null || registration.getStatus().isEmpty() || EventRegistration.STATUS_CANCELLED.equals(registration.getStatus())) {
+                registration.setStatus(EventRegistration.STATUS_CONFIRMED);
+            }
+            registration.setUpdatedAt(System.currentTimeMillis());
+            registration.buildRegistrationQrPayload();
+
             transaction.set(regRef, registration);
 
-            // Update team with eventId and updatedAt
+            // 6. Update team metadata without overwriting existing eventId (multi-event support)
             Map<String, Object> teamUpdates = new HashMap<>();
-            teamUpdates.put("eventId", registration.getEventId());
+            if (existingTeam.getEventId() == null || existingTeam.getEventId().isEmpty()) {
+                teamUpdates.put("eventId", eventId);
+            }
+            if (existingTeam.getLeaderUid() == null || existingTeam.getLeaderUid().isEmpty()) {
+                teamUpdates.put("leaderUid", currentUid);
+            }
+            if (isDummyTeamOrg && resolvedOrgId != null && !resolvedOrgId.isEmpty()) {
+                teamUpdates.put("organizationId", resolvedOrgId);
+            }
             teamUpdates.put("updatedAt", System.currentTimeMillis());
             if (registration.getProjectTitle() != null && !registration.getProjectTitle().isEmpty()) {
                 teamUpdates.put("projectTitle", registration.getProjectTitle());
@@ -1157,13 +1401,48 @@ public class FirebaseManager {
     }
 
     public Task<Void> cancelRegistration(String registrationId, String reason) {
-        Map<String, Object> updates = new HashMap<>();
-        updates.put("status", EventRegistration.STATUS_CANCELLED);
-        updates.put("updatedAt", System.currentTimeMillis());
-        if (reason != null && !reason.isEmpty()) {
-            updates.put("remarks", reason);
+        if (registrationId == null || registrationId.trim().isEmpty()) {
+            return Tasks.forException(new IllegalArgumentException("Registration ID cannot be null or empty."));
         }
-        return db.collection(Constants.COLLECTION_REGISTRATIONS).document(registrationId).update(updates);
+
+        DocumentReference regRef = db.collection(Constants.COLLECTION_REGISTRATIONS).document(registrationId);
+
+        return db.runTransaction(transaction -> {
+            DocumentSnapshot snapshot = transaction.get(regRef);
+            if (!snapshot.exists()) {
+                throw new IllegalStateException("Registration not found or has already been removed.");
+            }
+
+            EventRegistration reg = snapshot.toObject(EventRegistration.class);
+            if (reg == null) {
+                throw new IllegalStateException("Registration record is invalid.");
+            }
+
+            // Verify ownership: must be the team leader or an admin
+            String currentUid = auth.getCurrentUser() != null ? auth.getCurrentUser().getUid() : "";
+            boolean isCurrentUserAdmin = currentUserProfile != null && currentUserProfile.isAdmin();
+            if (!isCurrentUserAdmin && (currentUid.isEmpty() || !currentUid.equals(reg.getTeamLeaderId()))) {
+                throw new SecurityException("Unauthorized: You can only cancel your own team's registration.");
+            }
+
+            // Validate state transition: Cannot cancel already cancelled or rejected registration
+            if (reg.isCancelled()) {
+                throw new IllegalStateException("This registration is already cancelled.");
+            }
+            if (reg.isRejected()) {
+                throw new IllegalStateException("Rejected registrations cannot be cancelled.");
+            }
+
+            Map<String, Object> updates = new HashMap<>();
+            updates.put("status", EventRegistration.STATUS_CANCELLED);
+            updates.put("updatedAt", System.currentTimeMillis());
+            if (reason != null && !reason.trim().isEmpty()) {
+                updates.put("remarks", reason.trim());
+            }
+
+            transaction.update(regRef, updates);
+            return null;
+        });
     }
 
     public Task<Void> updateRegistrationStatus(String registrationId, String status, String remarks) {
@@ -1174,5 +1453,51 @@ public class FirebaseManager {
             updates.put("remarks", remarks);
         }
         return db.collection(Constants.COLLECTION_REGISTRATIONS).document(registrationId).update(updates);
+    }
+
+    /**
+     * Updates a user's password securely through a trusted Firebase Cloud Function.
+     * Enforces that only authorized administrators can change passwords for users
+     * within their organization. Passwords are never written to Firestore or logs.
+     *
+     * @param targetUid The UID of the target Judge or Team Leader.
+     * @param newPassword The new password to set (must be >= 6 characters).
+     * @return Task resolving to success message or failing with informative exception.
+     */
+    public Task<String> adminChangeUserPassword(String targetUid, String newPassword) {
+        if (TextUtils.isEmpty(targetUid)) {
+            return Tasks.forException(new IllegalArgumentException("Target user ID cannot be empty."));
+        }
+        if (TextUtils.isEmpty(newPassword) || newPassword.length() < 6) {
+            return Tasks.forException(new IllegalArgumentException("New password must be at least 6 characters."));
+        }
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("targetUid", targetUid.trim());
+        data.put("newPassword", newPassword);
+
+        return FirebaseFunctions.getInstance()
+                .getHttpsCallable("adminChangeUserPassword")
+                .call(data)
+                .continueWith(task -> {
+                    if (!task.isSuccessful()) {
+                        Exception e = task.getException();
+                        if (e instanceof FirebaseFunctionsException) {
+                            FirebaseFunctionsException ffe = (FirebaseFunctionsException) e;
+                            if (ffe.getCode() == FirebaseFunctionsException.Code.NOT_FOUND) {
+                                throw new Exception("Backend function 'adminChangeUserPassword' is not deployed yet. Please deploy the Cloud Functions from the /functions directory.", ffe);
+                            }
+                            throw new Exception(ffe.getMessage(), ffe);
+                        }
+                        throw e != null ? e : new Exception("Unknown error occurred while updating password.");
+                    }
+                    HttpsCallableResult result = task.getResult();
+                    if (result != null && result.getData() instanceof Map) {
+                        Map<?, ?> map = (Map<?, ?>) result.getData();
+                        Object msg = map.get("message");
+                        return msg != null ? msg.toString() : "Password updated successfully.";
+                    }
+                    return "Password updated successfully.";
+                });
     }
 }

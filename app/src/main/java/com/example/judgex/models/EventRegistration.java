@@ -37,6 +37,8 @@ public class EventRegistration implements Serializable {
     private long createdAt;
     private long updatedAt;
     private String remarks;
+    private String qrCodeData;
+    private String qrToken;
 
     public EventRegistration() {
         this.status = STATUS_CONFIRMED;
@@ -52,6 +54,9 @@ public class EventRegistration implements Serializable {
     }
 
     public static String generateRegistrationId(String eventId, String teamId) {
+        if (eventId != null && !eventId.trim().isEmpty() && teamId != null && !teamId.trim().isEmpty()) {
+            return "REG-" + eventId.trim() + "-" + teamId.trim();
+        }
         String cleanEvent = eventId != null && eventId.length() >= 4 ? eventId.substring(0, 4).toUpperCase(Locale.US) : "EVT";
         String randomSuffix = UUID.randomUUID().toString().substring(0, 6).toUpperCase(Locale.US);
         return "REG-" + cleanEvent + "-" + randomSuffix;
@@ -326,5 +331,43 @@ public class EventRegistration implements Serializable {
             snapshot.setMembers(new ArrayList<>(this.members));
         }
         return snapshot;
+    }
+
+    public String getQrCodeData() {
+        return qrCodeData;
+    }
+
+    public void setQrCodeData(String qrCodeData) {
+        this.qrCodeData = qrCodeData;
+    }
+
+    public String getQrToken() {
+        return qrToken;
+    }
+
+    public void setQrToken(String qrToken) {
+        this.qrToken = qrToken;
+    }
+
+    public String buildRegistrationQrPayload() {
+        if (qrCodeData != null && !qrCodeData.trim().isEmpty()) {
+            return qrCodeData;
+        }
+        try {
+            org.json.JSONObject json = new org.json.JSONObject();
+            json.put("v", 3);
+            json.put("regId", getId());
+            json.put("teamId", getTeamId());
+            json.put("eventId", getEventId());
+            json.put("teamNumber", getTeamNumber());
+            json.put("teamName", getTeamName());
+            json.put("eventName", getEventName());
+            json.put("issuedAt", getCreatedAt());
+            json.put("token", qrToken != null ? qrToken : java.util.UUID.randomUUID().toString());
+            this.qrCodeData = json.toString();
+            return this.qrCodeData;
+        } catch (Exception e) {
+            return getId() != null ? getId() : "";
+        }
     }
 }

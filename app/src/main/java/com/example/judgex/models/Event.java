@@ -3,6 +3,7 @@ package com.example.judgex.models;
 import java.io.Serializable;
 
 public class Event implements Serializable {
+    public static final String STATUS_DRAFT = "DRAFT";
     public static final String STATUS_UPCOMING = "UPCOMING";
     public static final String STATUS_ACTIVE = "ACTIVE";
     public static final String STATUS_LOCKED = "LOCKED";
@@ -11,6 +12,18 @@ public class Event implements Serializable {
 
     public static final String SCORING_WEIGHTED = "WEIGHTED";
     public static final String SCORING_RAW = "RAW";
+
+    public static final String SCOPE_ALL_SCHOOLS = "ALL";
+    public static final String SCOPE_SELECTED_SCHOOLS = "SELECTED";
+
+    public static final String SCHOOL_STME = "STME";
+    public static final String SCHOOL_SOC = "SOC";
+    public static final String SCHOOL_SPTM = "SPTM";
+    public static final String SCHOOL_SBM = "SBM";
+    public static final String SCHOOL_SOL = "SOL";
+    public static final java.util.List<String> ALL_SUPPORTED_SCHOOLS = java.util.Collections.unmodifiableList(
+            java.util.Arrays.asList(SCHOOL_STME, SCHOOL_SOC, SCHOOL_SPTM, SCHOOL_SBM, SCHOOL_SOL)
+    );
 
     private String id;
     private String name;
@@ -26,6 +39,10 @@ public class Event implements Serializable {
     private String endTime;
     private String venue;
     private boolean deleted;
+
+    // School Eligibility
+    private String schoolScope; // ALL or SELECTED
+    private java.util.List<String> eligibleSchools;
 
     // Discovery & Registration configurations
     private boolean published;
@@ -46,6 +63,8 @@ public class Event implements Serializable {
         this.isLocked = false;
         this.deleted = false;
         this.published = true; // Default published so existing events remain visible
+        this.schoolScope = SCOPE_ALL_SCHOOLS;
+        this.eligibleSchools = new java.util.ArrayList<>(ALL_SUPPORTED_SCHOOLS);
         this.minTeamSize = 1;
         this.maxTeamSize = 6;
         this.participationType = "TEAM";
@@ -55,6 +74,7 @@ public class Event implements Serializable {
     }
 
     public Event(String id, String name, String description, String status, boolean isLocked, long createdAt) {
+        this();
         this.id = id;
         this.name = name;
         this.description = description;
@@ -62,7 +82,10 @@ public class Event implements Serializable {
         this.scoringType = SCORING_WEIGHTED;
         this.isAnonymousJudging = false;
         this.isLocked = isLocked || STATUS_LOCKED.equalsIgnoreCase(status);
-        this.createdAt = createdAt;
+        if (createdAt > 0) {
+            this.createdAt = createdAt;
+        }
+        this.published = !STATUS_DRAFT.equalsIgnoreCase(this.status);
     }
 
     public String getId() {
@@ -208,6 +231,9 @@ public class Event implements Serializable {
     }
 
     public boolean isPublished() {
+        if (deleted) return false;
+        if (STATUS_DRAFT.equalsIgnoreCase(status)) return false;
+        if (STATUS_ARCHIVED.equalsIgnoreCase(status)) return false;
         return published;
     }
 
@@ -299,5 +325,61 @@ public class Event implements Serializable {
 
     public boolean canTeamRegister(int teamSize) {
         return isRegistrationOpen() && teamSize >= getMinTeamSize() && teamSize <= getMaxTeamSize();
+    }
+
+    public String getSchoolScope() {
+        return schoolScope != null ? schoolScope : SCOPE_ALL_SCHOOLS;
+    }
+
+    public void setSchoolScope(String schoolScope) {
+        this.schoolScope = schoolScope;
+    }
+
+    public java.util.List<String> getEligibleSchools() {
+        if (eligibleSchools == null) {
+            eligibleSchools = new java.util.ArrayList<>(ALL_SUPPORTED_SCHOOLS);
+        }
+        return eligibleSchools;
+    }
+
+    public void setEligibleSchools(java.util.List<String> eligibleSchools) {
+        this.eligibleSchools = eligibleSchools;
+    }
+
+    public boolean isSchoolEligible(String school) {
+        if (school == null || school.trim().isEmpty()) {
+            return true; // Backward compatibility for unassigned or legacy profiles
+        }
+        String cleanSchool = school.trim().toUpperCase(java.util.Locale.US);
+        if (schoolScope == null || SCOPE_ALL_SCHOOLS.equalsIgnoreCase(schoolScope)) {
+            return true;
+        }
+        if (eligibleSchools == null || eligibleSchools.isEmpty()) {
+            return true; // Default to open if no specific restriction is populated
+        }
+        for (String s : eligibleSchools) {
+            if (s != null) {
+                String cleanS = s.trim().toUpperCase(java.util.Locale.US);
+                if (cleanS.equals(cleanSchool) || cleanS.equals("ALL") || cleanS.equals("ALL SCHOOLS")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public String getEligibleSchoolsSummary() {
+        if (schoolScope == null || SCOPE_ALL_SCHOOLS.equalsIgnoreCase(schoolScope)) {
+            return "All Schools (STME, SOC, SPTM, SBM, SOL)";
+        }
+        if (eligibleSchools == null || eligibleSchools.isEmpty()) {
+            return "All Schools";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < eligibleSchools.size(); i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(eligibleSchools.get(i));
+        }
+        return sb.toString();
     }
 }
