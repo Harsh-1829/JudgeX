@@ -76,13 +76,31 @@ service cloud.firestore {
     // Teams Collection
     match /teams/{teamId} {
       allow read: if isAuthenticated();
-      allow create, delete: if isAdmin();
-      // Admin can update; Team leader can update team details without altering panel or event assignments
-      allow update: if isAdmin() || 
-                     (isTeamLeader() && 
-                      resource.data.leaderUid == request.auth.uid &&
-                      request.resource.data.panelId == resource.data.panelId &&
-                      request.resource.data.eventId == resource.data.eventId);
+      // Admin can create/delete; Team leader can create their own team with their UID
+      allow create: if isAuthenticated() && (isAdmin() || (isTeamLeader() && request.resource.data.leaderUid == request.auth.uid));
+      allow delete: if isAdmin();
+      // Admin can update; Team leader can update team details without altering panel assignments
+      allow update: if isAuthenticated() && 
+                     (isAdmin() || 
+                      (isTeamLeader() && 
+                       resource.data.leaderUid == request.auth.uid &&
+                       request.resource.data.panelId == resource.data.panelId));
+    }
+
+    // Event Registrations Collection
+    match /eventRegistrations/{regId} {
+      allow read: if isAuthenticated() && (isAdmin() || (isTeamLeader() && resource.data.teamLeaderId == request.auth.uid));
+      // Admin or Team Leader can submit registration for their own team
+      allow create: if isAuthenticated() && 
+                     (isAdmin() || 
+                      (isTeamLeader() && request.resource.data.teamLeaderId == request.auth.uid));
+      // Admin can update status; Team leader can only cancel their own registration
+      allow update: if isAuthenticated() && 
+                     (isAdmin() || 
+                      (isTeamLeader() && 
+                       resource.data.teamLeaderId == request.auth.uid && 
+                       request.resource.data.status == 'CANCELLED'));
+      allow delete: if isAdmin();
     }
 
     // Evaluations Collection

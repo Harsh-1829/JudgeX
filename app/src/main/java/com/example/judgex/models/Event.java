@@ -27,12 +27,31 @@ public class Event implements Serializable {
     private String venue;
     private boolean deleted;
 
+    // Discovery & Registration configurations
+    private boolean published;
+    private long registrationDeadline;
+    private int minTeamSize;
+    private int maxTeamSize;
+    private String participationType; // TEAM or INDIVIDUAL
+    private String eligibility;
+    private boolean registrationApprovalRequired;
+    private String category;
+    private String department;
+    private String bannerUrl;
+
     public Event() {
         this.status = STATUS_UPCOMING;
         this.scoringType = SCORING_WEIGHTED;
         this.isAnonymousJudging = false;
         this.isLocked = false;
         this.deleted = false;
+        this.published = true; // Default published so existing events remain visible
+        this.minTeamSize = 1;
+        this.maxTeamSize = 6;
+        this.participationType = "TEAM";
+        this.registrationApprovalRequired = false;
+        this.category = "Hackathon";
+        this.createdAt = System.currentTimeMillis();
     }
 
     public Event(String id, String name, String description, String status, boolean isLocked, long createdAt) {
@@ -186,5 +205,99 @@ public class Event implements Serializable {
 
     public void setDeleted(boolean deleted) {
         this.deleted = deleted;
+    }
+
+    public boolean isPublished() {
+        return published;
+    }
+
+    public void setPublished(boolean published) {
+        this.published = published;
+    }
+
+    public long getRegistrationDeadline() {
+        return registrationDeadline;
+    }
+
+    public void setRegistrationDeadline(long registrationDeadline) {
+        this.registrationDeadline = registrationDeadline;
+    }
+
+    public int getMinTeamSize() {
+        return minTeamSize > 0 ? minTeamSize : 1;
+    }
+
+    public void setMinTeamSize(int minTeamSize) {
+        this.minTeamSize = minTeamSize;
+    }
+
+    public int getMaxTeamSize() {
+        return maxTeamSize > 0 ? maxTeamSize : 6;
+    }
+
+    public void setMaxTeamSize(int maxTeamSize) {
+        this.maxTeamSize = maxTeamSize;
+    }
+
+    public String getParticipationType() {
+        return participationType != null ? participationType : "TEAM";
+    }
+
+    public void setParticipationType(String participationType) {
+        this.participationType = participationType;
+    }
+
+    public String getEligibility() {
+        return eligibility != null ? eligibility : "Open to all verified college students.";
+    }
+
+    public void setEligibility(String eligibility) {
+        this.eligibility = eligibility;
+    }
+
+    public boolean isRegistrationApprovalRequired() {
+        return registrationApprovalRequired;
+    }
+
+    public void setRegistrationApprovalRequired(boolean registrationApprovalRequired) {
+        this.registrationApprovalRequired = registrationApprovalRequired;
+    }
+
+    public String getCategory() {
+        return category != null ? category : "Competition";
+    }
+
+    public void setCategory(String category) {
+        this.category = category;
+    }
+
+    public String getDepartment() {
+        return department != null ? department : "General";
+    }
+
+    public void setDepartment(String department) {
+        this.department = department;
+    }
+
+    public String getBannerUrl() {
+        return bannerUrl;
+    }
+
+    public void setBannerUrl(String bannerUrl) {
+        this.bannerUrl = bannerUrl;
+    }
+
+    public boolean isRegistrationOpen() {
+        if (!isPublished() || isLocked() || isCompleted() || isArchived()) {
+            return false;
+        }
+        if (registrationDeadline > 0 && System.currentTimeMillis() > registrationDeadline) {
+            return false;
+        }
+        return true;
+    }
+
+    public boolean canTeamRegister(int teamSize) {
+        return isRegistrationOpen() && teamSize >= getMinTeamSize() && teamSize <= getMaxTeamSize();
     }
 }

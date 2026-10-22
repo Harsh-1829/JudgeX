@@ -54,11 +54,15 @@ public class LoginActivity extends AppCompatActivity {
         progressBar = findViewById(R.id.progressBar);
         tvErrorMessage = findViewById(R.id.tvErrorMessage);
         MaterialButton btnRegisterAdmin = findViewById(R.id.btnRegisterAdmin);
+        MaterialButton btnRegisterTeamLeader = findViewById(R.id.btnRegisterTeamLeader);
 
         btnLogin.setOnClickListener(v -> handleLogin());
         tvForgotPassword.setOnClickListener(v -> showForgotPasswordDialog());
         if (btnRegisterAdmin != null) {
             btnRegisterAdmin.setOnClickListener(v -> startActivity(new Intent(LoginActivity.this, RegisterAdminActivity.class)));
+        }
+        if (btnRegisterTeamLeader != null) {
+            btnRegisterTeamLeader.setOnClickListener(v -> startActivity(new Intent(LoginActivity.this, RegisterTeamLeaderActivity.class)));
         }
     }
 

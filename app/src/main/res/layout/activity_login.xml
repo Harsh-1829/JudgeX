@@ -176,6 +176,19 @@
                     app:cornerRadius="10dp"
                     app:strokeColor="@color/accent" />
 
+                <!-- Register Team Leader Button -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnRegisterTeamLeader"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="50dp"
+                    android:layout_marginTop="10dp"
+                    android:text="Register as Team Leader"
+                    android:textColor="@color/primary"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    app:cornerRadius="10dp" />
+
             </LinearLayout>
 
         </com.google.android.material.card.MaterialCardView>

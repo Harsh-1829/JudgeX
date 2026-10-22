@@ -20,6 +20,7 @@ import com.example.judgex.R;
 import com.example.judgex.adapters.TeamAdapter;
 import com.example.judgex.data.FirebaseManager;
 import com.example.judgex.models.Event;
+import com.example.judgex.models.EventRegistration;
 import com.example.judgex.models.Panel;
 import com.example.judgex.models.Team;
 import com.example.judgex.qr.QRViewActivity;
@@ -246,6 +247,18 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
                     tilTeamName.setError("Team name is required");
                     return;
                 }
+                if (existingTeam == null) {
+                    for (Team t : teamList) {
+                        if (t.getTeamNumber() != null && t.getTeamNumber().equalsIgnoreCase(number)) {
+                            tilTeamNumber.setError("Team number already registered for this event");
+                            return;
+                        }
+                        if (t.getTeamName() != null && t.getTeamName().equalsIgnoreCase(name)) {
+                            tilTeamName.setError("Team name already registered for this event");
+                            return;
+                        }
+                    }
+                }
                 if (TextUtils.isEmpty(title)) {
                     tilProjectTitle.setError("Project title is required");
                     return;
@@ -314,15 +327,41 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
                     });
         } else {
             Team newTeam = new Team(null, eventId, panelId, number, name, title, category, leader, email, memberCount, "", System.currentTimeMillis());
+            if (currentEvent != null && currentEvent.getOrganizationId() != null) {
+                newTeam.setOrganizationId(currentEvent.getOrganizationId());
+            }
             firebaseManager.createTeam(newTeam)
                     .addOnSuccessListener(docRef -> {
                         newTeam.setId(docRef.getId());
                         newTeam.setQrCodeData(generateQRDataPayload(docRef.getId(), number, name, eventId, panelId));
                         firebaseManager.updateTeam(newTeam);
 
+                        // Unified registration record for Admin-created team
+                        EventRegistration reg = new EventRegistration();
+                        reg.setId(EventRegistration.generateRegistrationId());
+                        reg.setEventId(eventId);
+                        if (currentEvent != null) {
+                            reg.setEventName(currentEvent.getName());
+                            reg.setOrganizationId(currentEvent.getOrganizationId());
+                        }
+                        reg.setTeamId(docRef.getId());
+                        reg.setTeamName(name);
+                        reg.setTeamNumber(number);
+                        reg.setTeamLeaderName(leader);
+                        reg.setTeamLeaderEmail(email);
+                        reg.setRegistrationSource(EventRegistration.SOURCE_ADMIN);
+                        reg.setCreatorUid(firebaseManager.getCurrentFirebaseUser() != null ? firebaseManager.getCurrentFirebaseUser().getUid() : "admin");
+                        reg.setStatus(EventRegistration.STATUS_CONFIRMED);
+                        reg.setStatusReason("Registered directly by Admin");
+                        reg.setRegisteredMemberCount(memberCount);
+                        reg.setTeamSnapshot(newTeam);
+                        firebaseManager.getRegistrationsCollection().document(reg.getId()).set(reg);
+
                         if (!password.isEmpty() && !email.isEmpty()) {
                             firebaseManager.createTeamLeaderAccount(this, email, password, leader, docRef.getId())
                                     .addOnSuccessListener(uid -> {
+                                        reg.setTeamLeaderId(uid);
+                                        firebaseManager.getRegistrationsCollection().document(reg.getId()).set(reg);
                                         loadingDialog.dismiss();
                                         UIUtils.showToast(this, "Team registered and leader login provisioned: " + name);
                                         loadPanelsAndTeams();

@@ -26,6 +26,7 @@ import com.example.judgex.qr.QRCodeGenerator;
 import com.example.judgex.qr.QRViewActivity;
 import com.example.judgex.utils.Constants;
 import com.example.judgex.utils.UIUtils;
+import com.example.judgex.models.EventRegistration;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.firebase.firestore.DocumentSnapshot;
@@ -34,6 +35,7 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -43,11 +45,13 @@ import java.util.UUID;
 public class TeamLeaderDashboardActivity extends AppCompatActivity {
 
     private SwipeRefreshLayout swipeRefreshLayout;
-    private TextView tvLeaderGreeting, tvEventName, tvEventStatus;
+    private TextView tvLeaderGreeting, tvLeaderOrg, tvTeamBannerInfo, tvEventName, tvEventStatus;
     private TextView tvTeamNumber, tvRegistrationBadge, tvTeamName, tvProjectTitle;
     private TextView tvCategory, tvMemberCount, tvAssignedPanel;
+    private TextView tvStatAvailableEvents, tvStatRegisteredEvents, tvStatPendingStatus, tvStatUpcomingDate;
+    private MaterialCardView cardBrowseEvents, cardMyRegistrations, cardManageTeam, cardLeaderProfile;
     private ImageView ivQRCode;
-    private MaterialButton btnLogout, btnShareQR, btnFullScreenQR;
+    private MaterialButton btnLogout, btnProfile, btnShareQR, btnFullScreenQR;
 
     // Results card views
     private MaterialCardView cardTeamResult;
@@ -63,6 +67,7 @@ public class TeamLeaderDashboardActivity extends AppCompatActivity {
     private Event currentEvent;
     private Panel currentPanel;
     private Bitmap qrBitmap;
+    private final java.text.SimpleDateFormat dateFormat = new java.text.SimpleDateFormat("MMM dd", java.util.Locale.US);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -73,9 +78,22 @@ public class TeamLeaderDashboardActivity extends AppCompatActivity {
         loadLeaderAndTeamData();
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (currentLeader != null) {
+            String uid = currentLeader.getUid();
+            if (uid != null && !uid.isEmpty()) {
+                loadDashboardStats(uid, currentLeader.getOrganizationId());
+            }
+        }
+    }
+
     private void initViews() {
         swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout);
         tvLeaderGreeting = findViewById(R.id.tvLeaderGreeting);
+        tvLeaderOrg = findViewById(R.id.tvLeaderOrg);
+        tvTeamBannerInfo = findViewById(R.id.tvTeamBannerInfo);
         tvEventName = findViewById(R.id.tvEventName);
         tvEventStatus = findViewById(R.id.tvEventStatus);
         tvTeamNumber = findViewById(R.id.tvTeamNumber);
@@ -87,8 +105,19 @@ public class TeamLeaderDashboardActivity extends AppCompatActivity {
         tvAssignedPanel = findViewById(R.id.tvAssignedPanel);
         ivQRCode = findViewById(R.id.ivQRCode);
         btnLogout = findViewById(R.id.btnLogout);
+        btnProfile = findViewById(R.id.btnProfile);
         btnShareQR = findViewById(R.id.btnShareQR);
         btnFullScreenQR = findViewById(R.id.btnFullScreenQR);
+
+        tvStatAvailableEvents = findViewById(R.id.tvStatAvailableEvents);
+        tvStatRegisteredEvents = findViewById(R.id.tvStatRegisteredEvents);
+        tvStatPendingStatus = findViewById(R.id.tvStatPendingStatus);
+        tvStatUpcomingDate = findViewById(R.id.tvStatUpcomingDate);
+
+        cardBrowseEvents = findViewById(R.id.cardBrowseEvents);
+        cardMyRegistrations = findViewById(R.id.cardMyRegistrations);
+        cardManageTeam = findViewById(R.id.cardManageTeam);
+        cardLeaderProfile = findViewById(R.id.cardLeaderProfile);
 
         cardTeamResult = findViewById(R.id.cardTeamResult);
         tvResultStatusBadge = findViewById(R.id.tvResultStatusBadge);
@@ -110,6 +139,16 @@ public class TeamLeaderDashboardActivity extends AppCompatActivity {
                 finish();
             });
         });
+
+        if (btnProfile != null) {
+            btnProfile.setOnClickListener(v -> startActivity(new Intent(this, TeamLeaderProfileActivity.class)));
+        }
+
+        // Quick Actions
+        cardBrowseEvents.setOnClickListener(v -> startActivity(new Intent(this, BrowseEventsActivity.class)));
+        cardMyRegistrations.setOnClickListener(v -> startActivity(new Intent(this, MyRegistrationsActivity.class)));
+        cardManageTeam.setOnClickListener(v -> startActivity(new Intent(this, ManageTeamActivity.class)));
+        cardLeaderProfile.setOnClickListener(v -> startActivity(new Intent(this, TeamLeaderProfileActivity.class)));
 
         btnShareQR.setOnClickListener(v -> sharePass());
         btnFullScreenQR.setOnClickListener(v -> {
@@ -140,7 +179,11 @@ public class TeamLeaderDashboardActivity extends AppCompatActivity {
                             currentLeader.setUid(doc.getId());
                             firebaseManager.setCurrentUserProfile(currentLeader);
                             tvLeaderGreeting.setText("Welcome, " + (currentLeader.getName() != null ? currentLeader.getName() : "Team Leader"));
-
+                            if (tvLeaderOrg != null) {
+                                String org = currentLeader.getOrganizationId();
+                                tvLeaderOrg.setText(org != null && !org.isEmpty() ? org : "General Institution");
+                            }
+                            loadDashboardStats(uid, currentLeader.getOrganizationId());
                             queryAllParticipations(uid, currentLeader.getEmail(), currentLeader.getAssignedTeamId());
                             return;
                         }
@@ -268,6 +311,11 @@ public class TeamLeaderDashboardActivity extends AppCompatActivity {
 
     private void onTeamLoaded(Team team) {
         currentTeam = team;
+        if (tvTeamBannerInfo != null) {
+            String num = team.getTeamNumber() != null ? team.getTeamNumber() : "TM";
+            String name = team.getTeamName() != null ? team.getTeamName() : "Team";
+            tvTeamBannerInfo.setText(name + " (" + num + ")");
+        }
         tvTeamNumber.setText(team.getTeamNumber() != null ? team.getTeamNumber() : "TM");
         tvTeamName.setText(team.getTeamName() != null ? team.getTeamName() : "Team");
         tvProjectTitle.setText(team.getProjectTitle() != null ? team.getProjectTitle() : "Project Title");
@@ -462,11 +510,72 @@ public class TeamLeaderDashboardActivity extends AppCompatActivity {
 
     private void showNoTeamAssigned() {
         swipeRefreshLayout.setRefreshing(false);
+        if (tvTeamBannerInfo != null) {
+            tvTeamBannerInfo.setText("No Team Linked");
+        }
         tvTeamName.setText("No Team Linked");
         tvProjectTitle.setText("Your account has not been linked to a registered team yet. Please contact the administrator.");
         tvRegistrationBadge.setText("Pending");
         tvAssignedPanel.setText("Unassigned");
         cardTeamResult.setVisibility(View.GONE);
+    }
+
+    private void loadDashboardStats(String uid, String orgId) {
+        // Query published events for the leader's organization
+        firebaseManager.getPublishedEventsForOrganization(orgId)
+                .addOnSuccessListener(eventsList -> {
+                    int availableCount = eventsList.size();
+                    long now = System.currentTimeMillis();
+                    long nearestUpcoming = Long.MAX_VALUE;
+
+                    for (Event ev : eventsList) {
+                        if (ev != null) {
+                            long date = ev.getScheduledDate();
+                            if (date > now && date < nearestUpcoming) {
+                                nearestUpcoming = date;
+                            }
+                        }
+                    }
+
+                    if (tvStatAvailableEvents != null) {
+                        tvStatAvailableEvents.setText(String.valueOf(availableCount));
+                    }
+                    if (tvStatUpcomingDate != null) {
+                        if (nearestUpcoming != Long.MAX_VALUE) {
+                            tvStatUpcomingDate.setText(dateFormat.format(new Date(nearestUpcoming)));
+                        } else {
+                            tvStatUpcomingDate.setText("TBD");
+                        }
+                    }
+                })
+                .addOnFailureListener(e -> {
+                    if (tvStatAvailableEvents != null) tvStatAvailableEvents.setText("—");
+                    if (tvStatUpcomingDate != null) tvStatUpcomingDate.setText("—");
+                });
+
+        // Query event registrations for this leader
+        firebaseManager.getTeamLeaderRegistrations(uid)
+                .addOnSuccessListener(qs -> {
+                    int totalRegs = qs.size();
+                    int pendingCount = 0;
+                    for (DocumentSnapshot doc : qs.getDocuments()) {
+                        EventRegistration reg = doc.toObject(EventRegistration.class);
+                        if (reg != null && EventRegistration.STATUS_PENDING.equalsIgnoreCase(reg.getStatus())) {
+                            pendingCount++;
+                        }
+                    }
+
+                    if (tvStatRegisteredEvents != null) {
+                        tvStatRegisteredEvents.setText(String.valueOf(totalRegs));
+                    }
+                    if (tvStatPendingStatus != null) {
+                        tvStatPendingStatus.setText(String.valueOf(pendingCount));
+                    }
+                })
+                .addOnFailureListener(e -> {
+                    if (tvStatRegisteredEvents != null) tvStatRegisteredEvents.setText("—");
+                    if (tvStatPendingStatus != null) tvStatPendingStatus.setText("—");
+                });
     }
 
     private void sharePass() {

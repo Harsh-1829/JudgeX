@@ -43,6 +43,10 @@
             android:name=".auth.RegisterAdminActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".auth.RegisterTeamLeaderActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
 
         <!-- Admin Module -->
         <activity
@@ -99,6 +103,34 @@
         <!-- Team Leader Module -->
         <activity
             android:name=".team.TeamLeaderDashboardActivity"
+            android:exported="false" />
+        <activity
+            android:name=".team.BrowseEventsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".team.EventDetailLeaderActivity"
+            android:exported="false" />
+        <activity
+            android:name=".team.ManageTeamActivity"
+            android:exported="false" />
+        <activity
+            android:name=".team.AddEditMemberActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".team.EventRegistrationReviewActivity"
+            android:exported="false" />
+        <activity
+            android:name=".team.RegistrationSuccessActivity"
+            android:exported="false" />
+        <activity
+            android:name=".team.MyRegistrationsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".team.RegistrationDetailsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".team.TeamLeaderProfileActivity"
             android:exported="false" />
 
         <!-- ZXing Scanner Activity -->

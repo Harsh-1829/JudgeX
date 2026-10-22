@@ -19,6 +19,9 @@ public class Team implements Serializable {
     private String leaderUid;
     private int memberCount;
     private String qrCodeData;
+    private String organizationId;
+    private java.util.List<TeamMember> members;
+    private long updatedAt;
     private String status;
     private boolean deleted;
     private long createdAt;
@@ -26,6 +29,9 @@ public class Team implements Serializable {
     public Team() {
         this.status = STATUS_ACTIVE;
         this.deleted = false;
+        this.members = new java.util.ArrayList<>();
+        this.createdAt = System.currentTimeMillis();
+        this.updatedAt = System.currentTimeMillis();
     }
 
     public Team(String id, String eventId, String panelId, String teamNumber, String teamName, 
@@ -183,5 +189,92 @@ public class Team implements Serializable {
 
     public boolean isUnregistered() {
         return STATUS_REMOVED.equalsIgnoreCase(status);
+    }
+
+    public String getOrganizationId() {
+        return organizationId;
+    }
+
+    public void setOrganizationId(String organizationId) {
+        this.organizationId = organizationId;
+    }
+
+    public java.util.List<TeamMember> getMembers() {
+        if (members == null) members = new java.util.ArrayList<>();
+        return members;
+    }
+
+    public void setMembers(java.util.List<TeamMember> members) {
+        this.members = members;
+        if (members != null && !members.isEmpty()) {
+            this.memberCount = members.size();
+        }
+    }
+
+    public long getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(long updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+
+    public void addMember(TeamMember member) {
+        if (member == null) return;
+        if (members == null) members = new java.util.ArrayList<>();
+        
+        // Remove existing if matching id/email/rollNumber
+        for (int i = 0; i < members.size(); i++) {
+            TeamMember existing = members.get(i);
+            if (member.equals(existing)) {
+                members.set(i, member);
+                this.memberCount = members.size();
+                this.updatedAt = System.currentTimeMillis();
+                return;
+            }
+        }
+        members.add(member);
+        this.memberCount = members.size();
+        this.updatedAt = System.currentTimeMillis();
+    }
+
+    public boolean removeMember(String memberId) {
+        if (members == null || memberId == null) return false;
+        for (int i = 0; i < members.size(); i++) {
+            TeamMember m = members.get(i);
+            if (memberId.equals(m.getId()) || memberId.equalsIgnoreCase(m.getEmail()) || memberId.equalsIgnoreCase(m.getRollNumber())) {
+                members.remove(i);
+                this.memberCount = members.size();
+                this.updatedAt = System.currentTimeMillis();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public TeamMember getLeaderMember() {
+        if (members == null) return null;
+        for (TeamMember m : members) {
+            if (m.isLeader()) return m;
+        }
+        return !members.isEmpty() ? members.get(0) : null;
+    }
+
+    public boolean hasMemberWithEmail(String email) {
+        if (members == null || email == null) return false;
+        String clean = email.trim().toLowerCase(java.util.Locale.US);
+        for (TeamMember m : members) {
+            if (clean.equalsIgnoreCase(m.getEmail())) return true;
+        }
+        return false;
+    }
+
+    public boolean hasMemberWithRollNumber(String rollNumber) {
+        if (members == null || rollNumber == null) return false;
+        String clean = rollNumber.trim().toUpperCase(java.util.Locale.US);
+        for (TeamMember m : members) {
+            if (clean.equalsIgnoreCase(m.getRollNumber())) return true;
+        }
+        return false;
     }
 }

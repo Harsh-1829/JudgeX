@@ -6,9 +6,11 @@ import android.text.TextUtils;
 import com.example.judgex.models.Criterion;
 import com.example.judgex.models.Evaluation;
 import com.example.judgex.models.Event;
+import com.example.judgex.models.EventRegistration;
 import com.example.judgex.models.Organization;
 import com.example.judgex.models.Panel;
 import com.example.judgex.models.Team;
+import com.example.judgex.models.TeamMember;
 import com.example.judgex.models.User;
 import com.example.judgex.utils.Constants;
 import com.google.android.gms.tasks.Task;
@@ -939,5 +941,238 @@ public class FirebaseManager {
         }
 
         return Tasks.whenAllSuccess(tasks);
+    }
+
+    // --- Team Leader & Registration Operations ---
+
+    public CollectionReference getRegistrationsCollection() {
+        return db.collection(Constants.COLLECTION_REGISTRATIONS);
+    }
+
+    /**
+     * Registers a new Team Leader:
+     * 1. Creates Firebase Auth account with email and password.
+     * 2. Sets role as User.ROLE_TEAM_LEADER securely in Firestore.
+     * 3. Creates default team roster with leader as first member.
+     * 4. Batches user profile and team initialization atomically.
+     */
+    public Task<User> registerTeamLeaderAccount(String name, String rawEmail, String password,
+                                               String orgId, String orgName, String dept,
+                                               String rollNo, String phone, String defaultTeamName) {
+        TaskCompletionSource<User> tcs = new TaskCompletionSource<>();
+        final String normalizedEmail = normalizeEmail(rawEmail);
+
+        if (TextUtils.isEmpty(name) || name.trim().length() < 2) {
+            tcs.setException(new IllegalArgumentException("Leader name must be at least 2 characters."));
+            return tcs.getTask();
+        }
+        if (TextUtils.isEmpty(normalizedEmail) || !android.util.Patterns.EMAIL_ADDRESS.matcher(normalizedEmail).matches()) {
+            tcs.setException(new IllegalArgumentException("A valid email address is required."));
+            return tcs.getTask();
+        }
+        if (TextUtils.isEmpty(password) || password.length() < 6) {
+            tcs.setException(new IllegalArgumentException("Password must be at least 6 characters."));
+            return tcs.getTask();
+        }
+
+        // Check if email already registered before calling Auth
+        db.collection(Constants.COLLECTION_USERS)
+                .whereEqualTo("email", normalizedEmail)
+                .limit(1)
+                .get()
+                .addOnSuccessListener(querySnapshot -> {
+                    if (querySnapshot != null && !querySnapshot.isEmpty()) {
+                        tcs.setException(new IllegalStateException("An account with this email address already exists."));
+                        return;
+                    }
+
+                    auth.createUserWithEmailAndPassword(normalizedEmail, password)
+                            .addOnSuccessListener(authResult -> {
+                                FirebaseUser firebaseUser = authResult.getUser();
+                                if (firebaseUser == null) {
+                                    tcs.setException(new IllegalStateException("Failed to initialize authentication session."));
+                                    return;
+                                }
+
+                                String uid = firebaseUser.getUid();
+                                String teamId = db.collection(Constants.COLLECTION_TEAMS).document().getId();
+
+                                // Prepare User
+                                User leaderUser = new User(uid, name, normalizedEmail, User.ROLE_TEAM_LEADER);
+                                leaderUser.setOrganizationId(orgId);
+                                leaderUser.setOrganizationName(orgName != null && !orgName.isEmpty() ? orgName : "Institution");
+                                leaderUser.setDepartment(dept);
+                                leaderUser.setRollNumber(rollNo);
+                                leaderUser.setPhone(phone);
+                                leaderUser.setAssignedTeamId(teamId);
+                                leaderUser.setStatus(User.STATUS_ACTIVE);
+                                leaderUser.setActive(true);
+
+                                // Prepare Initial Team
+                                String cleanTeamName = !TextUtils.isEmpty(defaultTeamName) ? defaultTeamName.trim() : (name + "'s Team");
+                                Team initialTeam = new Team();
+                                initialTeam.setId(teamId);
+                                initialTeam.setTeamName(cleanTeamName);
+                                initialTeam.setTeamNumber("TM-" + (int) (100 + Math.random() * 900));
+                                initialTeam.setLeaderName(name);
+                                initialTeam.setLeaderEmail(normalizedEmail);
+                                initialTeam.setLeaderUid(uid);
+                                initialTeam.setOrganizationId(orgId);
+                                initialTeam.setProjectTitle("Project " + cleanTeamName);
+                                initialTeam.setCategory("General");
+
+                                TeamMember leaderMember = new TeamMember(
+                                        java.util.UUID.randomUUID().toString(),
+                                        name, normalizedEmail, rollNo, dept, "Undergraduate", phone, true
+                                );
+                                initialTeam.addMember(leaderMember);
+
+                                WriteBatch batch = db.batch();
+                                batch.set(db.collection(Constants.COLLECTION_USERS).document(uid), leaderUser);
+                                batch.set(db.collection(Constants.COLLECTION_TEAMS).document(teamId), initialTeam);
+
+                                batch.commit()
+                                        .addOnSuccessListener(aVoid -> {
+                                            currentUserProfile = leaderUser;
+                                            tcs.setResult(leaderUser);
+                                        })
+                                        .addOnFailureListener(e -> {
+                                            firebaseUser.delete();
+                                            tcs.setException(e);
+                                        });
+                            })
+                            .addOnFailureListener(tcs::setException);
+                })
+                .addOnFailureListener(tcs::setException);
+
+        return tcs.getTask();
+    }
+
+    public Task<List<Event>> getPublishedEventsForOrganization(String organizationId) {
+        return db.collection(Constants.COLLECTION_EVENTS).get()
+                .continueWith(task -> {
+                    List<Event> list = new ArrayList<>();
+                    if (!task.isSuccessful() || task.getResult() == null) return list;
+                    for (DocumentSnapshot doc : task.getResult().getDocuments()) {
+                        Event e = doc.toObject(Event.class);
+                        if (e != null && !e.isDeleted() && e.isPublished()) {
+                            e.setId(doc.getId());
+                            if (organizationId == null || organizationId.isEmpty()
+                                    || e.getOrganizationId() == null || e.getOrganizationId().isEmpty()
+                                    || organizationId.equals(e.getOrganizationId())) {
+                                list.add(e);
+                            }
+                        }
+                    }
+                    return list;
+                });
+    }
+
+    public Task<QuerySnapshot> getTeamLeaderRegistrations(String teamLeaderId) {
+        return db.collection(Constants.COLLECTION_REGISTRATIONS)
+                .whereEqualTo("teamLeaderId", teamLeaderId)
+                .get();
+    }
+
+    public Task<QuerySnapshot> getRegistrationsForEvent(String eventId) {
+        return db.collection(Constants.COLLECTION_REGISTRATIONS)
+                .whereEqualTo("eventId", eventId)
+                .get();
+    }
+
+    public Task<DocumentSnapshot> getRegistration(String registrationId) {
+        return db.collection(Constants.COLLECTION_REGISTRATIONS).document(registrationId).get();
+    }
+
+    /**
+     * Atomically registers a team for an event:
+     * - Validates event existence, open status, deadline, and team size boundaries.
+     * - Ensures duplicate registrations for the same event and team are prevented.
+     * - Saves event registration snapshot and updates the team record.
+     */
+    public Task<Void> registerTeamForEvent(EventRegistration registration, Team team) {
+        if (registration == null || team == null || registration.getEventId() == null || team.getId() == null) {
+            return Tasks.forException(new IllegalArgumentException("Registration and team parameters cannot be null."));
+        }
+
+        DocumentReference regRef = db.collection(Constants.COLLECTION_REGISTRATIONS).document(registration.getId());
+        DocumentReference teamRef = db.collection(Constants.COLLECTION_TEAMS).document(team.getId());
+        DocumentReference eventRef = db.collection(Constants.COLLECTION_EVENTS).document(registration.getEventId());
+
+        return db.runTransaction(transaction -> {
+            DocumentSnapshot eventSnap = transaction.get(eventRef);
+            if (!eventSnap.exists()) {
+                throw new IllegalStateException("Event not found or has been removed.");
+            }
+
+            Event event = eventSnap.toObject(Event.class);
+            if (event != null) {
+                event.setId(eventSnap.getId());
+                if (!event.isRegistrationOpen()) {
+                    throw new IllegalStateException("Registration for this event is closed or the deadline has passed.");
+                }
+
+                int memberCount = registration.getMemberCount();
+                if (memberCount < event.getMinTeamSize()) {
+                    throw new IllegalStateException("Team must have at least " + event.getMinTeamSize() + " members (current: " + memberCount + ").");
+                }
+                if (memberCount > event.getMaxTeamSize()) {
+                    throw new IllegalStateException("Team cannot exceed " + event.getMaxTeamSize() + " members (current: " + memberCount + ").");
+                }
+
+                // If event requires approval, set status to PENDING
+                if (event.isRegistrationApprovalRequired() && !EventRegistration.SOURCE_ADMIN.equals(registration.getRegistrationSource())) {
+                    registration.setStatus(EventRegistration.STATUS_PENDING);
+                } else if (registration.getStatus() == null || registration.getStatus().isEmpty()) {
+                    registration.setStatus(EventRegistration.STATUS_CONFIRMED);
+                }
+            }
+
+            // Check if registration doc already exists
+            DocumentSnapshot existingReg = transaction.get(regRef);
+            if (existingReg.exists()) {
+                EventRegistration existing = existingReg.toObject(EventRegistration.class);
+                if (existing != null && !existing.isCancelled()) {
+                    throw new IllegalStateException("This team is already registered for this event.");
+                }
+            }
+
+            // Write registration record
+            transaction.set(regRef, registration);
+
+            // Update team with eventId and updatedAt
+            Map<String, Object> teamUpdates = new HashMap<>();
+            teamUpdates.put("eventId", registration.getEventId());
+            teamUpdates.put("updatedAt", System.currentTimeMillis());
+            if (registration.getProjectTitle() != null && !registration.getProjectTitle().isEmpty()) {
+                teamUpdates.put("projectTitle", registration.getProjectTitle());
+            }
+            if (registration.getCategory() != null && !registration.getCategory().isEmpty()) {
+                teamUpdates.put("category", registration.getCategory());
+            }
+            transaction.update(teamRef, teamUpdates);
+
+            return null;
+        });
+    }
+
+    public Task<Void> cancelRegistration(String registrationId, String reason) {
+        Map<String, Object> updates = new HashMap<>();
+        updates.put("status", EventRegistration.STATUS_CANCELLED);
+        updates.put("updatedAt", System.currentTimeMillis());
+        if (reason != null && !reason.isEmpty()) {
+            updates.put("remarks", reason);
+        }
+        return db.collection(Constants.COLLECTION_REGISTRATIONS).document(registrationId).update(updates);
+    }
+
+    public Task<Void> updateRegistrationStatus(String registrationId, String status, String remarks) {
+        Map<String, Object> updates = new HashMap<>();
+        updates.put("status", status);
+        updates.put("updatedAt", System.currentTimeMillis());
+        if (remarks != null) {
+            updates.put("remarks", remarks);
+        }
+        return db.collection(Constants.COLLECTION_REGISTRATIONS).document(registrationId).update(updates);
     }
 }
