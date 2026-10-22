@@ -36,8 +36,9 @@ public class JudgeDashboardActivity extends AppCompatActivity {
     private SwipeRefreshLayout swipeRefreshLayout;
     private TextView tvJudgeName, tvJudgeEmail, tvAssignedPanel, tvEventName, tvLockedBanner;
     private TextView tvCountPending, tvCountDrafts, tvCountSubmitted;
-    private MaterialButton btnLogout, btnScan;
-    private MaterialCardView cardScanQR;
+    private MaterialButton btnLogout, btnScan, btnViewResults;
+    private MaterialCardView cardScanQR, cardJudgeResults;
+    private TextView tvResultsStatusHint;
 
     private final FirebaseManager firebaseManager = FirebaseManager.getInstance();
     private final List<Team> assignedTeams = new ArrayList<>();
@@ -77,6 +78,9 @@ public class JudgeDashboardActivity extends AppCompatActivity {
         btnLogout = findViewById(R.id.btnLogout);
         btnScan = findViewById(R.id.btnScan);
         cardScanQR = findViewById(R.id.cardScanQR);
+        cardJudgeResults = findViewById(R.id.cardJudgeResults);
+        btnViewResults = findViewById(R.id.btnViewResults);
+        tvResultsStatusHint = findViewById(R.id.tvResultsStatusHint);
 
         swipeRefreshLayout.setOnRefreshListener(this::loadJudgeProfileAndData);
 
@@ -126,6 +130,10 @@ public class JudgeDashboardActivity extends AppCompatActivity {
 
         cardScanQR.setOnClickListener(scanClickListener);
         btnScan.setOnClickListener(scanClickListener);
+
+        View.OnClickListener resultsClickListener = v -> handleViewResults();
+        cardJudgeResults.setOnClickListener(resultsClickListener);
+        btnViewResults.setOnClickListener(resultsClickListener);
     }
 
     private void loadJudgeProfileAndData() {
@@ -211,9 +219,41 @@ public class JudgeDashboardActivity extends AppCompatActivity {
                             } else {
                                 tvLockedBanner.setVisibility(View.GONE);
                             }
+
+                            if (tvResultsStatusHint != null) {
+                                boolean isPublished = currentEvent.isCompleted() || currentEvent.isLocked();
+                                tvResultsStatusHint.setText(isPublished
+                                        ? "Official standings are published. Tap to view."
+                                        : "Results not yet available (evaluations in progress).");
+                            }
                         }
                     }
                 });
+    }
+
+    private void handleViewResults() {
+        if (currentEvent == null) {
+            UIUtils.showToast(this, "No assigned competition event found.");
+            return;
+        }
+
+        // Apply event's publication policy:
+        // Results are only published and accessible to judges if event is COMPLETED or LOCKED.
+        boolean isPublished = currentEvent.isCompleted() || currentEvent.isLocked();
+
+        if (isPublished) {
+            Intent intent = new Intent(JudgeDashboardActivity.this, com.example.judgex.admin.ResultsRankingActivity.class);
+            intent.putExtra(Constants.EXTRA_EVENT, currentEvent);
+            intent.putExtra(Constants.EXTRA_EVENT_ID, currentEvent.getId());
+            startActivity(intent);
+        } else {
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Results Not Yet Available")
+                    .setMessage("Official results and standings for '" + currentEvent.getName() + "' have not been published yet.\n\n" +
+                            "Panel evaluations are currently in progress. Final rankings will become available here once the administrator locks or finalizes the event.")
+                    .setPositiveButton("OK", (dialog, which) -> dialog.dismiss())
+                    .show();
+        }
     }
 
     private void loadPanelTeams(String panelId) {

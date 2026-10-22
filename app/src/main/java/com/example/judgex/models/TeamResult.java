@@ -28,13 +28,17 @@ public class TeamResult implements Serializable, Comparable<TeamResult> {
     }
 
     public void calculateScores(int totalAssignedJudges) {
+        calculateScores(totalAssignedJudges, Event.SCORING_WEIGHTED, null);
+    }
+
+    public void calculateScores(int totalAssignedJudges, String scoringType, List<Criterion> criteriaList) {
         this.totalAssignedJudges = totalAssignedJudges;
         
-        // Count only VALID submitted evaluations
+        // Count only VALID submitted evaluations (Drafts must never count toward rankings)
         List<Evaluation> validSubmitted = new ArrayList<>();
         if (evaluations != null) {
             for (Evaluation eval : evaluations) {
-                if (eval.isSubmitted()) {
+                if (eval != null && eval.isSubmitted()) {
                     validSubmitted.add(eval);
                 }
             }
@@ -46,16 +50,56 @@ public class TeamResult implements Serializable, Comparable<TeamResult> {
         if (evaluationsCount > 0) {
             double sum = 0.0;
             double maxScore = 100.0;
+            boolean isRaw = Event.SCORING_RAW.equalsIgnoreCase(scoringType);
+
             for (Evaluation eval : validSubmitted) {
-                sum += eval.getTotalScore();
-                if (eval.getMaxPossibleScore() > 0) {
-                    maxScore = eval.getMaxPossibleScore();
+                double evalScore = 0.0;
+                double evalMax = isRaw ? 0.0 : 100.0;
+
+                if (criteriaList != null && !criteriaList.isEmpty() && eval.getScores() != null && !eval.getScores().isEmpty()) {
+                    if (isRaw) {
+                        for (Criterion c : criteriaList) {
+                            Double mark = eval.getScores().get(c.getId());
+                            if (mark != null) {
+                                evalScore += mark;
+                            }
+                            evalMax += c.getMaxMarks();
+                        }
+                        if (evalMax <= 0.0) {
+                            evalMax = eval.getMaxPossibleScore() > 0 ? eval.getMaxPossibleScore() : 100.0;
+                        }
+                    } else {
+                        // Weighted aggregation
+                        double totalWeight = 0.0;
+                        for (Criterion c : criteriaList) {
+                            totalWeight += c.getWeight();
+                        }
+                        if (totalWeight <= 0.0) totalWeight = 100.0;
+
+                        for (Criterion c : criteriaList) {
+                            Double mark = eval.getScores().get(c.getId());
+                            double weight = c.getWeight();
+                            if (mark != null && c.getMaxMarks() > 0) {
+                                evalScore += (mark / c.getMaxMarks()) * weight;
+                            }
+                        }
+                        evalMax = 100.0;
+                    }
+                } else {
+                    // Direct score from evaluation record
+                    evalScore = eval.getTotalScore();
+                    evalMax = eval.getMaxPossibleScore() > 0 ? eval.getMaxPossibleScore() : 100.0;
                 }
+
+                sum += evalScore;
+                maxScore = evalMax;
             }
+
             this.totalScoreSum = sum;
-            // Task requirement: "When multiple judges evaluate a team, calculate the average using valid submitted evaluations only. Pending evaluations must not count as zero."
+            // Task requirement: Aggregate multiple judges' evaluations according to scoring policy.
+            // Do not treat missing evaluations as zero. Divisor is valid submitted count only.
             this.averageScore = sum / evaluationsCount;
-            this.maxPossibleScore = maxScore;
+            this.maxPossibleScore = maxScore > 0 ? maxScore : 100.0;
         } else {
             this.totalScoreSum = 0.0;
             this.averageScore = 0.0;
@@ -161,7 +205,22 @@ public class TeamResult implements Serializable, Comparable<TeamResult> {
 
     @Override
     public int compareTo(TeamResult other) {
-        // Sort descending by average score
-        return Double.compare(other.averageScore, this.averageScore);
+        if (other == null) return -1;
+        // Primary sort: descending by average score
+        if (Math.abs(other.averageScore - this.averageScore) > 0.0001) {
+            return Double.compare(other.averageScore, this.averageScore);
+        }
+        // Consistent tie-breaking by team number, then team name
+        if (this.team != null && other.team != null) {
+            String num1 = this.team.getTeamNumber() != null ? this.team.getTeamNumber() : "";
+            String num2 = other.team.getTeamNumber() != null ? other.team.getTeamNumber() : "";
+            int numCmp = num1.compareToIgnoreCase(num2);
+            if (numCmp != 0) return numCmp;
+
+            String name1 = this.team.getTeamName() != null ? this.team.getTeamName() : "";
+            String name2 = other.team.getTeamName() != null ? other.team.getTeamName() : "";
+            return name1.compareToIgnoreCase(name2);
+        }
+        return 0;
     }
 }

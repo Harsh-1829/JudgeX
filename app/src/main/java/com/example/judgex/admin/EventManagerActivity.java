@@ -35,6 +35,7 @@ import com.google.android.material.textfield.TextInputLayout;
 import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.Query;
 
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -204,6 +205,9 @@ public class EventManagerActivity extends AppCompatActivity implements EventAdap
 
         if (existingEvent != null && existingEvent.getScheduledDate() > 0) {
             etEventDate.setText(sdf.format(new Date(existingEvent.getScheduledDate())));
+        } else if (existingEvent != null) {
+            etEventDate.setText("");
+            selectedDateMillis[0] = 0;
         } else {
             etEventDate.setText(sdf.format(new Date(selectedDateMillis[0])));
         }
@@ -228,37 +232,96 @@ public class EventManagerActivity extends AppCompatActivity implements EventAdap
             etEndTime.setText("05:00 PM");
         }
 
-        etEventDate.setOnClickListener(v -> {
+        etEventDate.setFocusable(false);
+        etEventDate.setClickable(true);
+        etStartTime.setFocusable(false);
+        etStartTime.setClickable(true);
+        etEndTime.setFocusable(false);
+        etEndTime.setClickable(true);
+
+        View.OnClickListener datePickerListener = v -> {
             Calendar cal = Calendar.getInstance();
-            cal.setTimeInMillis(selectedDateMillis[0]);
+            if (selectedDateMillis[0] > 0) {
+                cal.setTimeInMillis(selectedDateMillis[0]);
+            }
             DatePickerDialog dpd = new DatePickerDialog(this, (dp, year, month, dayOfMonth) -> {
                 Calendar chosen = Calendar.getInstance();
                 chosen.set(year, month, dayOfMonth, 0, 0, 0);
+                chosen.set(Calendar.MILLISECOND, 0);
                 selectedDateMillis[0] = chosen.getTimeInMillis();
                 etEventDate.setText(sdf.format(chosen.getTime()));
+                tilEventDate.setError(null);
             }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH));
-            dpd.show();
-        });
 
-        etStartTime.setOnClickListener(v -> {
+            if (existingEvent == null) {
+                Calendar startOfToday = Calendar.getInstance();
+                startOfToday.set(Calendar.HOUR_OF_DAY, 0);
+                startOfToday.set(Calendar.MINUTE, 0);
+                startOfToday.set(Calendar.SECOND, 0);
+                startOfToday.set(Calendar.MILLISECOND, 0);
+                dpd.getDatePicker().setMinDate(startOfToday.getTimeInMillis());
+            }
+            dpd.show();
+        };
+        etEventDate.setOnClickListener(datePickerListener);
+        tilEventDate.setOnClickListener(datePickerListener);
+
+        View.OnClickListener startTimeListener = v -> {
+            int initialHour = 9;
+            int initialMinute = 0;
+            String currentVal = etStartTime.getText() != null ? etStartTime.getText().toString().trim() : "";
+            if (!currentVal.isEmpty()) {
+                try {
+                    SimpleDateFormat tf = new SimpleDateFormat("hh:mm a", Locale.US);
+                    Date d = tf.parse(currentVal);
+                    if (d != null) {
+                        Calendar c = Calendar.getInstance();
+                        c.setTime(d);
+                        initialHour = c.get(Calendar.HOUR_OF_DAY);
+                        initialMinute = c.get(Calendar.MINUTE);
+                    }
+                } catch (Exception ignored) {}
+            }
             TimePickerDialog tpd = new TimePickerDialog(this, (tp, hourOfDay, minute) -> {
                 String ampm = hourOfDay >= 12 ? "PM" : "AM";
                 int h = hourOfDay % 12;
                 if (h == 0) h = 12;
                 etStartTime.setText(String.format(Locale.US, "%02d:%02d %s", h, minute, ampm));
-            }, 9, 0, false);
+                tilStartTime.setError(null);
+                tilEndTime.setError(null);
+            }, initialHour, initialMinute, false);
             tpd.show();
-        });
+        };
+        etStartTime.setOnClickListener(startTimeListener);
+        tilStartTime.setOnClickListener(startTimeListener);
 
-        etEndTime.setOnClickListener(v -> {
+        View.OnClickListener endTimeListener = v -> {
+            int initialHour = 17;
+            int initialMinute = 0;
+            String currentVal = etEndTime.getText() != null ? etEndTime.getText().toString().trim() : "";
+            if (!currentVal.isEmpty()) {
+                try {
+                    SimpleDateFormat tf = new SimpleDateFormat("hh:mm a", Locale.US);
+                    Date d = tf.parse(currentVal);
+                    if (d != null) {
+                        Calendar c = Calendar.getInstance();
+                        c.setTime(d);
+                        initialHour = c.get(Calendar.HOUR_OF_DAY);
+                        initialMinute = c.get(Calendar.MINUTE);
+                    }
+                } catch (Exception ignored) {}
+            }
             TimePickerDialog tpd = new TimePickerDialog(this, (tp, hourOfDay, minute) -> {
                 String ampm = hourOfDay >= 12 ? "PM" : "AM";
                 int h = hourOfDay % 12;
                 if (h == 0) h = 12;
                 etEndTime.setText(String.format(Locale.US, "%02d:%02d %s", h, minute, ampm));
-            }, 17, 0, false);
+                tilEndTime.setError(null);
+            }, initialHour, initialMinute, false);
             tpd.show();
-        });
+        };
+        etEndTime.setOnClickListener(endTimeListener);
+        tilEndTime.setOnClickListener(endTimeListener);
 
         builder.setView(view);
         builder.setPositiveButton(isEdit ? "Update" : "Create", null);
@@ -273,21 +336,30 @@ public class EventManagerActivity extends AppCompatActivity implements EventAdap
                 String endTime = etEndTime.getText() != null ? etEndTime.getText().toString().trim() : "";
                 String venue = etEventVenue.getText() != null ? etEventVenue.getText().toString().trim() : "";
 
+                tilEventName.setError(null);
+                tilEventDate.setError(null);
+                tilStartTime.setError(null);
+                tilEndTime.setError(null);
+
                 if (TextUtils.isEmpty(name)) {
                     tilEventName.setError("Event name is required");
                     return;
                 }
 
+                if (!TextUtils.isEmpty(startTime) && !TextUtils.isEmpty(endTime)) {
+                    try {
+                        SimpleDateFormat tf = new SimpleDateFormat("hh:mm a", Locale.US);
+                        Date start = tf.parse(startTime);
+                        Date end = tf.parse(endTime);
+                        if (start != null && end != null && !end.after(start)) {
+                            tilEndTime.setError("End time must be later than start time");
+                            return;
+                        }
+                    } catch (ParseException ignored) {}
+                }
+
                 String scoringType = rbScoringRaw.isChecked() ? Event.SCORING_RAW : Event.SCORING_WEIGHTED;
                 boolean isAnonymous = cbAnonymousJudging.isChecked();
-
-                // Compute lifecycle status based on scheduled date
-                Calendar endOfToday = Calendar.getInstance();
-                endOfToday.set(Calendar.HOUR_OF_DAY, 23);
-                endOfToday.set(Calendar.MINUTE, 59);
-                endOfToday.set(Calendar.SECOND, 59);
-
-                boolean isFuture = selectedDateMillis[0] > endOfToday.getTimeInMillis();
 
                 dialog.dismiss();
                 Dialog loadingDialog = UIUtils.showLoadingDialog(this, isEdit ? "Updating event..." : "Creating event...");
@@ -316,7 +388,8 @@ public class EventManagerActivity extends AppCompatActivity implements EventAdap
                     User currentAdmin = firebaseManager.getCurrentUserProfile();
                     String orgId = currentAdmin != null ? currentAdmin.getOrganizationId() : null;
 
-                    String initialStatus = isFuture ? Event.STATUS_UPCOMING : Event.STATUS_ACTIVE;
+                    // Respect scheduling policy: newly created events start as UPCOMING until an admin activates them
+                    String initialStatus = Event.STATUS_UPCOMING;
                     Event newEvent = new Event(null, name, description, initialStatus, false, System.currentTimeMillis());
                     newEvent.setScoringType(scoringType);
                     newEvent.setAnonymousJudging(isAnonymous);

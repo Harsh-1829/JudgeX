@@ -29,6 +29,7 @@ import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
+import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.firestore.DocumentSnapshot;
 
 import org.json.JSONObject;
@@ -413,11 +414,14 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
     private String generateQRDataPayload(String teamId, String teamNumber, String teamName, String eventId, String panelId) {
         try {
             JSONObject json = new JSONObject();
+            json.put("v", 2);
             json.put("teamId", teamId);
             json.put("teamNumber", teamNumber);
             json.put("teamName", teamName);
             json.put("eventId", eventId);
             json.put("panelId", panelId);
+            json.put("issuedAt", System.currentTimeMillis());
+            json.put("token", java.util.UUID.randomUUID().toString());
             return json.toString();
         } catch (Exception e) {
             return teamId;
@@ -431,6 +435,8 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
                 : "Remove from Event / Unregister Team";
 
         String[] options = {
+                "View Team & Leader Details",
+                "Send Password Reset to Leader",
                 "Edit Team Details",
                 "Reassign Panel",
                 "View / Share QR Pass",
@@ -443,21 +449,92 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
                 .setItems(options, (dialog, which) -> {
                     switch (which) {
                         case 0:
-                            showAddEditTeamDialog(team);
+                            showTeamDetailsDialog(team);
                             break;
                         case 1:
-                            showReassignTeamPanelDialog(team);
+                            sendPasswordResetForLeader(team);
                             break;
                         case 2:
-                            onQRClick(team);
+                            showAddEditTeamDialog(team);
                             break;
                         case 3:
-                            handleRemoveTeamFromEvent(team);
+                            showReassignTeamPanelDialog(team);
                             break;
                         case 4:
+                            onQRClick(team);
+                            break;
+                        case 5:
+                            handleRemoveTeamFromEvent(team);
+                            break;
+                        case 6:
                             handleDeleteTeamRecord(team);
                             break;
                     }
+                })
+                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                .show();
+    }
+
+    private void showTeamDetailsDialog(Team team) {
+        String panelName = "Unassigned";
+        if (team.getPanelId() != null) {
+            for (Panel p : panelList) {
+                if (p.getId().equals(team.getPanelId())) {
+                    panelName = p.getName();
+                    break;
+                }
+            }
+        }
+
+        StringBuilder details = new StringBuilder();
+        details.append("🏷️ Team Number: ").append(team.getTeamNumber()).append("\n\n");
+        details.append("🚀 Team Name: ").append(team.getTeamName()).append("\n\n");
+        details.append("💡 Project: ").append(team.getProjectTitle() != null ? team.getProjectTitle() : "N/A").append("\n\n");
+        details.append("📂 Category: ").append(team.getCategory() != null ? team.getCategory() : "General").append("\n\n");
+        details.append("👤 Team Leader: ").append(team.getLeaderName() != null ? team.getLeaderName() : "N/A").append("\n\n");
+        details.append("📧 Leader Email: ").append(team.getLeaderEmail() != null ? team.getLeaderEmail() : "N/A").append("\n\n");
+        details.append("⚖️ Panel Assignment: ").append(panelName).append("\n\n");
+        details.append("👥 Team Members: ").append(team.getMemberCount()).append("\n\n");
+        details.append("🟢 Participation Status: ").append(team.isUnregistered() ? "Unregistered / Removed" : "Active").append("\n\n");
+        details.append("🎫 Event QR Pass: ").append(team.getQrCodeData() != null && !team.getQrCodeData().isEmpty() ? "Generated (v2 Secured)" : "Not Generated");
+
+        new AlertDialog.Builder(this)
+                .setTitle("Team & Leader Details")
+                .setMessage(details.toString())
+                .setPositiveButton("Close", (dialog, which) -> dialog.dismiss())
+                .setNeutralButton("View QR Pass", (dialog, which) -> {
+                    dialog.dismiss();
+                    onQRClick(team);
+                })
+                .show();
+    }
+
+    private void sendPasswordResetForLeader(Team team) {
+        String email = team.getLeaderEmail();
+        if (TextUtils.isEmpty(email)) {
+            UIUtils.showToast(this, "No team leader email registered for this team.");
+            return;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Send Password Reset Email")
+                .setMessage("Send an official Firebase Authentication password-reset email to the Team Leader at:\n\n" + email +
+                        "\n\nThe Team Leader will receive a secure email link allowing them to choose a new password. Plaintext passwords are never stored.")
+                .setPositiveButton("Send Reset Email", (dialog, which) -> {
+                    Dialog loading = UIUtils.showLoadingDialog(this, "Sending reset email...");
+                    FirebaseAuth.getInstance().sendPasswordResetEmail(email.trim())
+                            .addOnSuccessListener(aVoid -> {
+                                loading.dismiss();
+                                UIUtils.showToast(this, "Password reset email sent to " + email);
+                            })
+                            .addOnFailureListener(e -> {
+                                loading.dismiss();
+                                new AlertDialog.Builder(this)
+                                        .setTitle("Password Reset Failed")
+                                        .setMessage("Could not send password reset email:\n\n" + e.getMessage())
+                                        .setPositiveButton("OK", (d, w) -> d.dismiss())
+                                        .show();
+                            });
                 })
                 .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
                 .show();

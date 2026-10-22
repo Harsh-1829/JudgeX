@@ -25,7 +25,11 @@ public class Organization implements Serializable {
         this.name = name;
         this.adminUid = adminUid;
         this.adminEmail = adminEmail;
-        this.contactPhone = contactPhone;
+        this.contactPhone = contactPhone != null ? contactPhone : "";
+    }
+
+    public Organization(String id, String name, String adminUid, String adminEmail) {
+        this(id, name, adminUid, adminEmail, "");
     }
 
     public String getId() {

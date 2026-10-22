@@ -61,14 +61,17 @@ public class QRViewActivity extends AppCompatActivity {
         tvProjectTitle.setText(currentTeam.getProjectTitle() != null ? currentTeam.getProjectTitle() : "");
 
         String qrPayload = currentTeam.getQrCodeData();
-        if (qrPayload == null || qrPayload.isEmpty()) {
+        if (qrPayload == null || qrPayload.isEmpty() || !qrPayload.startsWith("{")) {
             try {
                 JSONObject json = new JSONObject();
+                json.put("v", 2);
                 json.put("teamId", currentTeam.getId());
                 json.put("teamNumber", currentTeam.getTeamNumber());
                 json.put("teamName", currentTeam.getTeamName());
                 json.put("eventId", currentTeam.getEventId());
                 json.put("panelId", currentTeam.getPanelId());
+                json.put("issuedAt", System.currentTimeMillis());
+                json.put("token", java.util.UUID.randomUUID().toString());
                 qrPayload = json.toString();
             } catch (Exception e) {
                 qrPayload = currentTeam.getId();

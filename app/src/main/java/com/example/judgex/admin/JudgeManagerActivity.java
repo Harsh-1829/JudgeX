@@ -29,6 +29,7 @@ import com.google.android.material.checkbox.MaterialCheckBox;
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
+import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.firestore.DocumentSnapshot;
 
 import java.util.ArrayList;
@@ -282,6 +283,9 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
     public void onJudgeClick(User judge) {
         String statusLabel = judge.isActive() ? "Deactivate Judge Account" : "Reactivate Judge Account";
         String[] options = {
+                "View Profile Details",
+                "Edit Judge Name",
+                "Send Password Reset Email",
                 "Assign / Reassign Panel",
                 "Remove from This Event",
                 statusLabel,
@@ -293,18 +297,125 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
                 .setItems(options, (dialog, which) -> {
                     switch (which) {
                         case 0:
-                            showReassignDialog(judge);
+                            showJudgeDetailsDialog(judge);
                             break;
                         case 1:
-                            handleRemoveJudgeFromEvent(judge);
+                            showEditJudgeNameDialog(judge);
                             break;
                         case 2:
-                            handleToggleJudgeActiveStatus(judge);
+                            sendPasswordResetForJudge(judge);
                             break;
                         case 3:
+                            showReassignDialog(judge);
+                            break;
+                        case 4:
+                            handleRemoveJudgeFromEvent(judge);
+                            break;
+                        case 5:
+                            handleToggleJudgeActiveStatus(judge);
+                            break;
+                        case 6:
                             handleDeleteJudgeAccount(judge);
                             break;
                     }
+                })
+                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                .show();
+    }
+
+    private void showJudgeDetailsDialog(User judge) {
+        String currentPanelId = judge.getPanelForEvent(eventId);
+        String panelName = "Unassigned";
+        if (currentPanelId != null && panelMap.containsKey(currentPanelId)) {
+            Panel p = panelMap.get(currentPanelId);
+            panelName = (p != null) ? p.getName() : currentPanelId;
+        }
+
+        int totalAssignments = judge.getEventPanelAssignments() != null ? judge.getEventPanelAssignments().size() : 0;
+        String orgInfo = judge.getOrganizationName() != null ? judge.getOrganizationName() : (judge.getOrganizationId() != null ? judge.getOrganizationId() : "Current Organization");
+
+        StringBuilder details = new StringBuilder();
+        details.append("👤 Full Name: ").append(judge.getName() != null ? judge.getName() : "N/A").append("\n\n");
+        details.append("📧 Email: ").append(judge.getEmail() != null ? judge.getEmail() : "N/A").append("\n\n");
+        details.append("🏛️ Organization: ").append(orgInfo).append("\n\n");
+        details.append("⚖️ Panel (This Event): ").append(panelName).append("\n\n");
+        details.append("📋 Total Event Assignments: ").append(totalAssignments).append("\n\n");
+        details.append("🟢 Status: ").append(judge.isActive() ? "Active" : "Deactivated").append("\n\n");
+        details.append("🔒 Authentication: Managed via Firebase Auth (passwords are encrypted and never stored in plain text).");
+
+        new AlertDialog.Builder(this)
+                .setTitle("Judge Profile & Account")
+                .setMessage(details.toString())
+                .setPositiveButton("Close", (dialog, which) -> dialog.dismiss())
+                .setNeutralButton("Reset Password", (dialog, which) -> {
+                    dialog.dismiss();
+                    sendPasswordResetForJudge(judge);
+                })
+                .show();
+    }
+
+    private void showEditJudgeNameDialog(User judge) {
+        final TextInputEditText inputName = new TextInputEditText(this);
+        inputName.setText(judge.getName() != null ? judge.getName() : "");
+        inputName.setHint("Judge Full Name");
+
+        TextInputLayout layout = new TextInputLayout(this);
+        layout.setPadding(40, 20, 40, 0);
+        layout.addView(inputName);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Edit Judge Name")
+                .setView(layout)
+                .setPositiveButton("Save", (dialog, which) -> {
+                    String newName = inputName.getText() != null ? inputName.getText().toString().trim() : "";
+                    if (TextUtils.isEmpty(newName) || newName.length() < 2) {
+                        UIUtils.showToast(this, "Name must be at least 2 characters.");
+                        return;
+                    }
+
+                    judge.setName(newName);
+                    Dialog loading = UIUtils.showLoadingDialog(this, "Updating judge profile...");
+                    firebaseManager.saveUserProfile(judge)
+                            .addOnSuccessListener(aVoid -> {
+                                loading.dismiss();
+                                UIUtils.showToast(this, "Judge profile updated successfully.");
+                                loadPanelsAndJudges();
+                            })
+                            .addOnFailureListener(e -> {
+                                loading.dismiss();
+                                UIUtils.showToast(this, "Failed to update profile: " + e.getMessage());
+                            });
+                })
+                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                .show();
+    }
+
+    private void sendPasswordResetForJudge(User judge) {
+        String email = judge.getEmail();
+        if (TextUtils.isEmpty(email)) {
+            UIUtils.showToast(this, "This judge does not have a registered email address.");
+            return;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Send Password Reset Email")
+                .setMessage("Send an official Firebase Authentication password-reset email to:\n\n" + email +
+                        "\n\nThe judge will receive a secure email link allowing them to choose a new password. No temporary password will be stored or exposed.")
+                .setPositiveButton("Send Reset Email", (dialog, which) -> {
+                    Dialog loading = UIUtils.showLoadingDialog(this, "Sending reset email...");
+                    FirebaseAuth.getInstance().sendPasswordResetEmail(email.trim())
+                            .addOnSuccessListener(aVoid -> {
+                                loading.dismiss();
+                                UIUtils.showToast(this, "Password reset email sent to " + email);
+                            })
+                            .addOnFailureListener(e -> {
+                                loading.dismiss();
+                                new AlertDialog.Builder(this)
+                                        .setTitle("Password Reset Failed")
+                                        .setMessage("Could not send password reset email:\n\n" + e.getMessage())
+                                        .setPositiveButton("OK", (d, w) -> d.dismiss())
+                                        .show();
+                            });
                 })
                 .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
                 .show();

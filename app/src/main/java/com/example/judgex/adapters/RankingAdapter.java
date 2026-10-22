@@ -22,8 +22,8 @@ public class RankingAdapter extends RecyclerView.Adapter<RankingAdapter.RankingV
     }
 
     private final List<TeamResult> results;
-    private final boolean isEventCompletedOrLocked;
-    private final boolean isAnonymousJudging;
+    private boolean isEventCompletedOrLocked;
+    private boolean isAnonymousJudging;
     private final OnRankingClickListener listener;
 
     public RankingAdapter(List<TeamResult> results, boolean isEventCompletedOrLocked, boolean isAnonymousJudging, OnRankingClickListener listener) {
@@ -31,6 +31,14 @@ public class RankingAdapter extends RecyclerView.Adapter<RankingAdapter.RankingV
         this.isEventCompletedOrLocked = isEventCompletedOrLocked;
         this.isAnonymousJudging = isAnonymousJudging;
         this.listener = listener;
+    }
+
+    public void setEventCompletedOrLocked(boolean completedOrLocked) {
+        this.isEventCompletedOrLocked = completedOrLocked;
+    }
+
+    public void setAnonymousJudging(boolean anonymousJudging) {
+        this.isAnonymousJudging = anonymousJudging;
     }
 
     public RankingAdapter(List<TeamResult> results, boolean isEventCompletedOrLocked, OnRankingClickListener listener) {
@@ -71,22 +79,26 @@ public class RankingAdapter extends RecyclerView.Adapter<RankingAdapter.RankingV
         }
 
         if (count > 0) {
-            holder.tvAverageScore.setText(String.format("%.1f", item.getAverageScore()));
-            holder.tvScoreSubtext.setText(String.format("/ %.0f pts", item.getMaxPossibleScore()));
+            holder.tvAverageScore.setText(String.format(java.util.Locale.US, "%.1f", item.getAverageScore()));
+            holder.tvScoreSubtext.setText(String.format(java.util.Locale.US, "/ %.0f pts", item.getMaxPossibleScore()));
         } else {
             holder.tvAverageScore.setText("—");
             holder.tvScoreSubtext.setText("No evals");
         }
 
         // Provisional vs Final Result Indicator
-        if (isEventCompletedOrLocked || (totalJudges > 0 && count >= totalJudges)) {
+        if (count > 0 && (isEventCompletedOrLocked || (totalJudges > 0 && count >= totalJudges))) {
             holder.tvProvisionalBadge.setText("FINAL");
             holder.tvProvisionalBadge.setBackgroundResource(R.drawable.bg_badge_success);
-            holder.tvProvisionalBadge.setTextColor(holder.itemView.getContext().getResources().getColor(R.color.success));
-        } else {
+            holder.tvProvisionalBadge.setTextColor(androidx.core.content.ContextCompat.getColor(holder.itemView.getContext(), R.color.success));
+        } else if (count > 0) {
             holder.tvProvisionalBadge.setText("PROVISIONAL");
             holder.tvProvisionalBadge.setBackgroundResource(R.drawable.bg_badge_pending);
-            holder.tvProvisionalBadge.setTextColor(holder.itemView.getContext().getResources().getColor(R.color.warning));
+            holder.tvProvisionalBadge.setTextColor(androidx.core.content.ContextCompat.getColor(holder.itemView.getContext(), R.color.warning));
+        } else {
+            holder.tvProvisionalBadge.setText(isEventCompletedOrLocked ? "UNRANKED" : "PENDING");
+            holder.tvProvisionalBadge.setBackgroundResource(R.drawable.bg_badge_locked);
+            holder.tvProvisionalBadge.setTextColor(androidx.core.content.ContextCompat.getColor(holder.itemView.getContext(), R.color.text_secondary));
         }
 
         // Custom medal styling for top 3 ranks

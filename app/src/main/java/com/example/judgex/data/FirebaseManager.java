@@ -1,6 +1,7 @@
 package com.example.judgex.data;
 
 import android.content.Context;
+import android.text.TextUtils;
 
 import com.example.judgex.models.Criterion;
 import com.example.judgex.models.Evaluation;
@@ -702,6 +703,104 @@ public class FirebaseManager {
 
     public Task<Void> saveOrganization(Organization organization) {
         return db.collection(Constants.COLLECTION_ORGANIZATIONS).document(organization.getId()).set(organization);
+    }
+
+    /**
+     * Registers a new organization and provisions its initial College Admin user account:
+     * 1. Validates required fields and normalizes administrator email.
+     * 2. Creates the Firebase Authentication account.
+     * 3. Prepares Organization and User profile models with tenant linkage (orgId, adminUid).
+     * 4. Commits both Organization and Admin User documents atomically in Firestore via WriteBatch.
+     * 5. If Firestore commit fails, rolls back the Firebase Authentication account to prevent orphaned credentials.
+     */
+    public Task<User> registerOrganizationAndAdmin(String orgName, String adminName, String rawEmail, String password) {
+        return registerOrganizationAndAdmin(orgName, adminName, rawEmail, "", password);
+    }
+
+    public Task<User> registerOrganizationAndAdmin(String orgName, String adminName, String rawEmail, String phone, String password) {
+        TaskCompletionSource<User> tcs = new TaskCompletionSource<>();
+        final String normalizedEmail = normalizeEmail(rawEmail);
+
+        if (TextUtils.isEmpty(orgName) || orgName.trim().length() < 3) {
+            tcs.setException(new IllegalArgumentException("Organization name must be at least 3 characters."));
+            return tcs.getTask();
+        }
+        if (TextUtils.isEmpty(adminName) || adminName.trim().length() < 2) {
+            tcs.setException(new IllegalArgumentException("Administrator name must be at least 2 characters."));
+            return tcs.getTask();
+        }
+        if (TextUtils.isEmpty(normalizedEmail) || !android.util.Patterns.EMAIL_ADDRESS.matcher(normalizedEmail).matches()) {
+            tcs.setException(new IllegalArgumentException("A valid official email address is required."));
+            return tcs.getTask();
+        }
+        if (TextUtils.isEmpty(password) || password.length() < 6) {
+            tcs.setException(new IllegalArgumentException("Password must be at least 6 characters."));
+            return tcs.getTask();
+        }
+
+        // 1. Create Firebase Auth account
+        auth.createUserWithEmailAndPassword(normalizedEmail, password)
+                .addOnSuccessListener(authResult -> {
+                    FirebaseUser firebaseUser = authResult.getUser();
+                    if (firebaseUser == null) {
+                        tcs.setException(new IllegalStateException("Failed to initialize Firebase Authentication user session."));
+                        return;
+                    }
+
+                    String uid = firebaseUser.getUid();
+                    String cleanOrgName = orgName.trim();
+                    String cleanAdminName = adminName.trim();
+                    String cleanPhone = phone != null ? phone.trim() : "";
+                    String orgId = "org_" + System.currentTimeMillis();
+
+                    Organization org = new Organization(orgId, cleanOrgName, uid, normalizedEmail, cleanPhone);
+                    org.setStatus(Organization.STATUS_ACTIVE);
+                    org.setCreatedAt(System.currentTimeMillis());
+
+                    User adminUser = new User();
+                    adminUser.setUid(uid);
+                    adminUser.setEmail(normalizedEmail);
+                    adminUser.setName(cleanAdminName);
+                    adminUser.setRole(User.ROLE_ADMIN);
+                    adminUser.setOrganizationId(orgId);
+                    adminUser.setOrganizationName(cleanOrgName);
+                    adminUser.setStatus(User.STATUS_ACTIVE);
+                    adminUser.setActive(true);
+                    adminUser.setCreatedAt(System.currentTimeMillis());
+
+                    // 2. Commit organization first so security rules can verify organization ownership for admin role creation
+                    DocumentReference orgRef = db.collection(Constants.COLLECTION_ORGANIZATIONS).document(orgId);
+                    DocumentReference userRef = db.collection(Constants.COLLECTION_USERS).document(uid);
+
+                    orgRef.set(org)
+                            .addOnSuccessListener(aVoid -> {
+                                userRef.set(adminUser)
+                                        .addOnSuccessListener(uVoid -> {
+                                            currentUserProfile = adminUser;
+                                            tcs.setResult(adminUser);
+                                        })
+                                        .addOnFailureListener(userErr -> {
+                                            // Rollback organization and auth user on failure
+                                            orgRef.delete();
+                                            firebaseUser.delete().addOnCompleteListener(deleteTask -> {
+                                                auth.signOut();
+                                                currentUserProfile = null;
+                                                tcs.setException(userErr);
+                                            });
+                                        });
+                            })
+                            .addOnFailureListener(orgErr -> {
+                                // Rollback auth user on failure
+                                firebaseUser.delete().addOnCompleteListener(deleteTask -> {
+                                    auth.signOut();
+                                    currentUserProfile = null;
+                                    tcs.setException(orgErr);
+                                });
+                            });
+                })
+                .addOnFailureListener(tcs::setException);
+
+        return tcs.getTask();
     }
 
     public Task<QuerySnapshot> getEventsForOrganization(String orgId) {

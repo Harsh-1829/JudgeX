@@ -69,6 +69,7 @@
                 android:id="@+id/etEventDate"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:clickable="true"
                 android:cursorVisible="false"
                 android:focusable="false"
                 android:inputType="none" />
@@ -96,6 +97,7 @@
                     android:id="@+id/etStartTime"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:clickable="true"
                     android:cursorVisible="false"
                     android:focusable="false"
                     android:inputType="none" />
@@ -116,6 +118,7 @@
                     android:id="@+id/etEndTime"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:clickable="true"
                     android:cursorVisible="false"
                     android:focusable="false"
                     android:inputType="none" />

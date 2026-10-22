@@ -195,8 +195,15 @@ public class QRScannerActivity extends AppCompatActivity {
             return;
         }
 
-        // Step 3: Check event ID consistency
+        // Step 3: Check event ID consistency and backward compatibility
         String teamEventId = team.getEventId();
+        if (teamEventId == null || teamEventId.trim().isEmpty()) {
+            hideLoading();
+            showErrorDialog("Invalid Pass",
+                    "This QR pass is not linked to any active competition event. Please regenerate a new event-specific pass from the team portal.");
+            return;
+        }
+
         if (eventId != null && !eventId.isEmpty() && !eventId.equals(teamEventId)) {
             hideLoading();
             showErrorDialog("Event Mismatch", 

@@ -7,20 +7,24 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function hasUserData() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function getUserData() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
     function isAdmin() {
-      return isAuthenticated() && getUserData().role == 'ADMIN';
+      return hasUserData() && getUserData().role == 'ADMIN';
     }
 
     function isJudge() {
-      return isAuthenticated() && getUserData().role == 'JUDGE';
+      return hasUserData() && getUserData().role == 'JUDGE';
     }
 
     function isTeamLeader() {
-      return isAuthenticated() && getUserData().role == 'TEAM_LEADER';
+      return hasUserData() && getUserData().role == 'TEAM_LEADER';
     }
 
     // Organizations Collection (Multi-college tenant boundaries)
@@ -36,8 +40,14 @@ service cloud.firestore {
     // Users Collection
     match /users/{userId} {
       allow read: if isAuthenticated();
-      // Admin can provision users; Users can create their own profile during initial registration without elevating roles
-      allow create: if isAuthenticated() && (isAdmin() || request.auth.uid == userId);
+      // Admin can provision users; Users can create their own profile during initial registration.
+      // If creating an ADMIN role, user must be the designated adminUid in the corresponding organization doc.
+      allow create: if isAuthenticated() && 
+                    (isAdmin() || 
+                     (request.auth.uid == userId && 
+                      (request.resource.data.role != 'ADMIN' || 
+                       (exists(/databases/$(database)/documents/organizations/$(request.resource.data.organizationId)) && 
+                        get(/databases/$(database)/documents/organizations/$(request.resource.data.organizationId)).data.adminUid == request.auth.uid))));
       // Admin can update; User can update non-privileged fields without modifying their role
       allow update: if isAuthenticated() && 
                      (isAdmin() || 

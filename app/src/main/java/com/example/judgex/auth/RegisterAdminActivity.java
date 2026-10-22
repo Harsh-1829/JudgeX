@@ -25,8 +25,8 @@ import com.google.firebase.auth.FirebaseUser;
 public class RegisterAdminActivity extends AppCompatActivity {
 
     private MaterialToolbar toolbar;
-    private TextInputLayout tilOrgName, tilAdminName, tilEmail, tilPhone, tilPassword, tilConfirmPassword;
-    private TextInputEditText etOrgName, etAdminName, etEmail, etPhone, etPassword, etConfirmPassword;
+    private TextInputLayout tilOrgName, tilAdminName, tilEmail, tilPassword, tilConfirmPassword;
+    private TextInputEditText etOrgName, etAdminName, etEmail, etPassword, etConfirmPassword;
     private TextView tvErrorMessage, tvBackToLogin;
     private ProgressBar progressBar;
     private MaterialButton btnRegister;
@@ -46,14 +46,12 @@ public class RegisterAdminActivity extends AppCompatActivity {
         tilOrgName = findViewById(R.id.tilOrgName);
         tilAdminName = findViewById(R.id.tilAdminName);
         tilEmail = findViewById(R.id.tilEmail);
-        tilPhone = findViewById(R.id.tilPhone);
         tilPassword = findViewById(R.id.tilPassword);
         tilConfirmPassword = findViewById(R.id.tilConfirmPassword);
 
         etOrgName = findViewById(R.id.etOrgName);
         etAdminName = findViewById(R.id.etAdminName);
         etEmail = findViewById(R.id.etEmail);
-        etPhone = findViewById(R.id.etPhone);
         etPassword = findViewById(R.id.etPassword);
         etConfirmPassword = findViewById(R.id.etConfirmPassword);
 
@@ -70,8 +68,7 @@ public class RegisterAdminActivity extends AppCompatActivity {
     private void handleRegistration() {
         String orgName = etOrgName.getText() != null ? etOrgName.getText().toString().trim() : "";
         String adminName = etAdminName.getText() != null ? etAdminName.getText().toString().trim() : "";
-        String email = etEmail.getText() != null ? etEmail.getText().toString().trim() : "";
-        String phone = etPhone.getText() != null ? etPhone.getText().toString().trim() : "";
+        String rawEmail = etEmail.getText() != null ? etEmail.getText().toString().trim() : "";
         String password = etPassword.getText() != null ? etPassword.getText().toString().trim() : "";
         String confirmPassword = etConfirmPassword.getText() != null ? etConfirmPassword.getText().toString().trim() : "";
 
@@ -89,11 +86,12 @@ public class RegisterAdminActivity extends AppCompatActivity {
         }
 
         if (TextUtils.isEmpty(adminName) || adminName.length() < 2) {
-            tilAdminName.setError("Administrator name is required");
+            tilAdminName.setError("Administrator name is required (min 2 chars)");
             etAdminName.requestFocus();
             return;
         }
 
+        String email = FirebaseManager.normalizeEmail(rawEmail);
         if (TextUtils.isEmpty(email) || !android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
             tilEmail.setError("Enter a valid official email address");
             etEmail.requestFocus();
@@ -114,67 +112,24 @@ public class RegisterAdminActivity extends AppCompatActivity {
 
         setLoading(true);
 
-        // 1. Create Firebase Auth Account
-        firebaseManager.getAuth().createUserWithEmailAndPassword(email, password)
-                .addOnSuccessListener(authResult -> {
-                    FirebaseUser firebaseUser = authResult.getUser();
-                    if (firebaseUser != null) {
-                        createOrganizationAndProfile(firebaseUser, orgName, adminName, email, phone);
-                    } else {
-                        setLoading(false);
-                        showError("Failed to initialize user session. Please try again.");
-                    }
+        firebaseManager.registerOrganizationAndAdmin(orgName, adminName, email, password)
+                .addOnSuccessListener(adminUser -> {
+                    setLoading(false);
+                    UIUtils.showToast(this, "Organization established! Welcome, " + adminUser.getName());
+
+                    Intent intent = new Intent(RegisterAdminActivity.this, AdminDashboardActivity.class);
+                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                    startActivity(intent);
+                    finish();
                 })
                 .addOnFailureListener(e -> {
                     setLoading(false);
                     if (e instanceof FirebaseAuthUserCollisionException) {
                         showError("An account with this email address already exists. Please sign in or reset your password.");
                     } else {
-                        showError(e.getMessage() != null ? e.getMessage() : "Registration failed.");
+                        String msg = e.getMessage() != null ? e.getMessage() : "Registration failed.";
+                        showError("Registration failed: " + msg);
                     }
-                });
-    }
-
-    private void createOrganizationAndProfile(FirebaseUser firebaseUser, String orgName, String adminName, String email, String phone) {
-        String uid = firebaseUser.getUid();
-        String orgId = "org_" + System.currentTimeMillis();
-
-        Organization org = new Organization(orgId, orgName, uid, email, phone);
-
-        User adminUser = new User();
-        adminUser.setUid(uid);
-        adminUser.setEmail(email);
-        adminUser.setName(adminName);
-        adminUser.setRole(User.ROLE_ADMIN);
-        adminUser.setOrganizationId(orgId);
-        adminUser.setOrganizationName(orgName);
-        adminUser.setStatus(User.STATUS_ACTIVE);
-        adminUser.setActive(true);
-        adminUser.setCreatedAt(System.currentTimeMillis());
-
-        // 2. Save Organization Record
-        firebaseManager.saveOrganization(org)
-                .addOnSuccessListener(aVoid -> {
-                    // 3. Save User Profile Record
-                    firebaseManager.saveUserProfile(adminUser)
-                            .addOnSuccessListener(aVoid2 -> {
-                                setLoading(false);
-                                firebaseManager.setCurrentUserProfile(adminUser);
-                                UIUtils.showToast(this, "Organization established! Welcome, " + adminName);
-
-                                Intent intent = new Intent(RegisterAdminActivity.this, AdminDashboardActivity.class);
-                                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                                startActivity(intent);
-                                finish();
-                            })
-                            .addOnFailureListener(e -> {
-                                setLoading(false);
-                                showError("Organization created, but failed to save user profile: " + e.getMessage());
-                            });
-                })
-                .addOnFailureListener(e -> {
-                    setLoading(false);
-                    showError("Failed to save organization record: " + e.getMessage());
                 });
     }
 
@@ -184,7 +139,6 @@ public class RegisterAdminActivity extends AppCompatActivity {
         etOrgName.setEnabled(!isLoading);
         etAdminName.setEnabled(!isLoading);
         etEmail.setEnabled(!isLoading);
-        etPhone.setEnabled(!isLoading);
         etPassword.setEnabled(!isLoading);
         etConfirmPassword.setEnabled(!isLoading);
     }
