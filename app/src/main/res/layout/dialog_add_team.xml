@@ -19,6 +19,15 @@
             android:textSize="18sp"
             android:textStyle="bold" />
 
+        <TextView
+            android:id="@+id/tvDialogSubtitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Enter team name and leader name. A unique username and temporary login password will be generated automatically."
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp" />
+
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/tilTeamNumber"
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
@@ -105,6 +114,7 @@
         </com.google.android.material.textfield.TextInputLayout>
 
         <LinearLayout
+            android:id="@+id/llEmailAndMembers"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
@@ -167,6 +177,7 @@
         </com.google.android.material.textfield.TextInputLayout>
 
         <TextView
+            android:id="@+id/tvPanelLabel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"

@@ -59,36 +59,52 @@
                 android:textSize="12sp"
                 android:textStyle="bold" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnAssignToPanel"
-                style="@style/Widget.Material3.Button.TonalButton"
+            <HorizontalScrollView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginEnd="6dp"
-                android:text="Assign Panel"
-                android:textSize="11sp" />
+                android:scrollbars="none">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnAutoAssign"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Auto Assign"
-                android:textSize="11sp" />
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnDeleteJudges"
-                style="@style/Widget.Material3.Button.TonalButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:text="Delete Account"
-                android:textColor="@color/danger"
-                app:backgroundTint="@color/danger_light"
-                app:icon="@android:drawable/ic_menu_delete"
-                app:iconTint="@color/danger"
-                android:textSize="11sp"
-                android:visibility="gone" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnAssignToPanel"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="6dp"
+                        android:text="Assign Panel"
+                        android:textSize="11sp"
+                        android:visibility="gone" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnAutoAssign"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="6dp"
+                        android:text="Auto Assign"
+                        android:textSize="11sp"
+                        android:visibility="gone" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnDeleteJudges"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Delete"
+                        android:textColor="@color/danger"
+                        app:backgroundTint="@color/danger_light"
+                        app:icon="@android:drawable/ic_menu_delete"
+                        app:iconTint="@color/danger"
+                        android:textSize="11sp"
+                        android:visibility="gone" />
+
+                </LinearLayout>
+            </HorizontalScrollView>
 
         </LinearLayout>
 

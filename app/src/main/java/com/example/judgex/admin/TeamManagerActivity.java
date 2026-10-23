@@ -7,8 +7,11 @@ import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.ArrayAdapter;
+import android.widget.ImageButton;
 import android.widget.Spinner;
 import android.widget.TextView;
+
+import com.example.judgex.utils.CryptoUtils;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
@@ -26,6 +29,7 @@ import com.example.judgex.qr.QRViewActivity;
 import com.example.judgex.utils.Constants;
 import com.example.judgex.utils.UIUtils;
 import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.button.MaterialButton;
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
@@ -39,6 +43,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -169,23 +174,22 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
     }
 
     private void showAddEditTeamDialog(Team existingTeam) {
-        if (panelList.isEmpty()) {
-            UIUtils.showToast(this, "Please create at least one Panel before adding teams!");
-            return;
-        }
-
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         View view = LayoutInflater.from(this).inflate(R.layout.dialog_add_team, null);
 
         TextView tvDialogTitle = view.findViewById(R.id.tvDialogTitle);
+        TextView tvDialogSubtitle = view.findViewById(R.id.tvDialogSubtitle);
         TextInputLayout tilTeamNumber = view.findViewById(R.id.tilTeamNumber);
         TextInputLayout tilTeamName = view.findViewById(R.id.tilTeamName);
         TextInputLayout tilProjectTitle = view.findViewById(R.id.tilProjectTitle);
         TextInputLayout tilCategory = view.findViewById(R.id.tilCategory);
         TextInputLayout tilLeaderName = view.findViewById(R.id.tilLeaderName);
+        View llEmailAndMembers = view.findViewById(R.id.llEmailAndMembers);
         TextInputLayout tilLeaderEmail = view.findViewById(R.id.tilLeaderEmail);
         TextInputLayout tilLeaderPassword = view.findViewById(R.id.tilLeaderPassword);
         TextInputLayout tilMemberCount = view.findViewById(R.id.tilMemberCount);
+        TextView tvPanelLabel = view.findViewById(R.id.tvPanelLabel);
+        Spinner spinnerPanels = view.findViewById(R.id.spinnerPanels);
 
         TextInputEditText etTeamNumber = view.findViewById(R.id.etTeamNumber);
         TextInputEditText etTeamName = view.findViewById(R.id.etTeamName);
@@ -195,7 +199,6 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
         TextInputEditText etLeaderEmail = view.findViewById(R.id.etLeaderEmail);
         TextInputEditText etLeaderPassword = view.findViewById(R.id.etLeaderPassword);
         TextInputEditText etMemberCount = view.findViewById(R.id.etMemberCount);
-        Spinner spinnerPanels = view.findViewById(R.id.spinnerPanels);
 
         List<String> panelNames = new ArrayList<>();
         int selectedIndex = 0;
@@ -211,14 +214,54 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
         spinnerPanels.setAdapter(spinnerAdapter);
         spinnerPanels.setSelection(selectedIndex);
 
-        if (existingTeam != null) {
+        if (existingTeam == null) {
+            // Simplified Admin Team Creation: Ask only for Team Name and Team Leader Name
+            tvDialogTitle.setText("Register New Team");
+            if (tvDialogSubtitle != null) {
+                tvDialogSubtitle.setVisibility(View.VISIBLE);
+            }
+            tilTeamName.setVisibility(View.VISIBLE);
+            tilLeaderName.setVisibility(View.VISIBLE);
+
+            // Hide all other fields during creation
+            tilTeamNumber.setVisibility(View.GONE);
+            tilProjectTitle.setVisibility(View.GONE);
+            tilCategory.setVisibility(View.GONE);
+            if (llEmailAndMembers != null) {
+                llEmailAndMembers.setVisibility(View.GONE);
+            }
+            tilLeaderPassword.setVisibility(View.GONE);
+            if (tvPanelLabel != null) {
+                tvPanelLabel.setVisibility(View.GONE);
+            }
+            spinnerPanels.setVisibility(View.GONE);
+        } else {
+            // Edit existing team details
             tvDialogTitle.setText("Edit Team Details");
+            if (tvDialogSubtitle != null) {
+                tvDialogSubtitle.setVisibility(View.GONE);
+            }
+            tilTeamNumber.setVisibility(View.VISIBLE);
+            tilTeamName.setVisibility(View.VISIBLE);
+            tilProjectTitle.setVisibility(View.VISIBLE);
+            tilCategory.setVisibility(View.VISIBLE);
+            tilLeaderName.setVisibility(View.VISIBLE);
+            if (llEmailAndMembers != null) {
+                llEmailAndMembers.setVisibility(View.VISIBLE);
+            }
+            tilLeaderEmail.setVisibility(View.GONE);
+            tilLeaderPassword.setVisibility(View.GONE);
+            tilMemberCount.setVisibility(View.VISIBLE);
+            if (tvPanelLabel != null) {
+                tvPanelLabel.setVisibility(View.VISIBLE);
+            }
+            spinnerPanels.setVisibility(View.VISIBLE);
+
             etTeamNumber.setText(existingTeam.getTeamNumber());
             etTeamName.setText(existingTeam.getTeamName());
             etProjectTitle.setText(existingTeam.getProjectTitle());
             etCategory.setText(existingTeam.getCategory());
             etLeaderName.setText(existingTeam.getLeaderName());
-            etLeaderEmail.setText(existingTeam.getLeaderEmail());
             etMemberCount.setText(String.valueOf(existingTeam.getMemberCount()));
         }
 
@@ -229,124 +272,180 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
         AlertDialog dialog = builder.create();
         dialog.setOnShowListener(d -> {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                String number = etTeamNumber.getText() != null ? etTeamNumber.getText().toString().trim() : "";
                 String name = etTeamName.getText() != null ? etTeamName.getText().toString().trim() : "";
-                String title = etProjectTitle.getText() != null ? etProjectTitle.getText().toString().trim() : "";
-                String category = etCategory.getText() != null ? etCategory.getText().toString().trim() : "";
                 String leader = etLeaderName.getText() != null ? etLeaderName.getText().toString().trim() : "";
-                String email = etLeaderEmail.getText() != null ? etLeaderEmail.getText().toString().trim() : "";
-                String password = etLeaderPassword.getText() != null ? etLeaderPassword.getText().toString().trim() : "";
-                String countStr = etMemberCount.getText() != null ? etMemberCount.getText().toString().trim() : "4";
+                tilTeamName.setError(null);
+                tilLeaderName.setError(null);
 
-                if (TextUtils.isEmpty(number)) {
-                    tilTeamNumber.setError("Team number is required");
-                    return;
-                }
                 if (TextUtils.isEmpty(name)) {
                     tilTeamName.setError("Team name is required");
                     return;
                 }
-                if (TextUtils.isEmpty(title)) {
-                    tilProjectTitle.setError("Project title is required");
-                    return;
-                }
-                if (!password.isEmpty() && password.length() < 6) {
-                    tilLeaderPassword.setError("Password must be at least 6 characters");
+                if (TextUtils.isEmpty(leader)) {
+                    tilLeaderName.setError("Leader name is required");
                     return;
                 }
 
-                int memberCount = 4;
-                try {
-                    memberCount = Integer.parseInt(countStr);
-                } catch (Exception ignored) {}
+                if (existingTeam == null) {
+                    if (isDuplicateTeam(teamList, name, leader)) {
+                        tilTeamName.setError("A team with this name and team leader already exists in this event.");
+                        UIUtils.showToast(TeamManagerActivity.this, "A team with this name and team leader already exists in this event.");
+                        return;
+                    }
+                    dialog.dismiss();
+                    registerNewTeamWithGeneratedCredentials(name, leader);
+                } else {
+                    String number = etTeamNumber.getText() != null ? etTeamNumber.getText().toString().trim() : existingTeam.getTeamNumber();
+                    String title = etProjectTitle.getText() != null ? etProjectTitle.getText().toString().trim() : existingTeam.getProjectTitle();
+                    String category = etCategory.getText() != null ? etCategory.getText().toString().trim() : existingTeam.getCategory();
+                    String countStr = etMemberCount.getText() != null ? etMemberCount.getText().toString().trim() : "4";
+                    int memberCount = 4;
+                    try {
+                        memberCount = Integer.parseInt(countStr);
+                    } catch (Exception ignored) {}
 
-                String panelId = panelList.get(spinnerPanels.getSelectedItemPosition()).getId();
+                    String panelId = !panelList.isEmpty() && spinnerPanels.getSelectedItemPosition() >= 0
+                            ? panelList.get(spinnerPanels.getSelectedItemPosition()).getId()
+                            : existingTeam.getPanelId();
 
-                dialog.dismiss();
-                saveTeam(existingTeam, number, name, title, category, leader, email, password, memberCount, panelId);
+                    dialog.dismiss();
+                    updateExistingTeamDetails(existingTeam, number, name, title, category, leader, memberCount, panelId);
+                }
             });
         });
         dialog.show();
     }
 
-    private void saveTeam(Team existingTeam, String number, String name, String title, 
-                          String category, String leader, String email, String password, int memberCount, String panelId) {
-        Dialog loadingDialog = UIUtils.showLoadingDialog(this, existingTeam != null ? "Updating team..." : "Registering team...");
+    private void registerNewTeamWithGeneratedCredentials(String teamName, String leaderName) {
+        Dialog loadingDialog = UIUtils.showLoadingDialog(this, "Generating credentials and registering team...");
 
-        if (existingTeam != null) {
-            existingTeam.setTeamNumber(number);
-            existingTeam.setTeamName(name);
-            existingTeam.setProjectTitle(title);
-            existingTeam.setCategory(category);
-            existingTeam.setLeaderName(leader);
-            existingTeam.setLeaderEmail(email);
-            existingTeam.setMemberCount(memberCount);
-            existingTeam.setPanelId(panelId);
-            existingTeam.setQrCodeData(generateQRDataPayload(existingTeam.getId(), number, name, eventId, panelId));
+        // Generate a unique username, e.g. codewarriors4821
+        firebaseManager.generateUniqueTeamUsername(teamName)
+                .addOnSuccessListener(username -> {
+                    // Generate secure random temporary password (never stored plaintext in Firestore)
+                    String tempPassword = FirebaseManager.generateSecureTemporaryPassword();
+                    String encryptedPassword = CryptoUtils.encrypt(tempPassword);
+                    String panelId = !panelList.isEmpty() ? panelList.get(0).getId() : "";
+                    String teamNumber = generateUniqueTeamNumber(teamList);
+                    String syntheticEmail = Constants.buildTeamSyntheticEmail(username);
 
-            firebaseManager.updateTeam(existingTeam)
-                    .addOnSuccessListener(aVoid -> {
-                        if (!password.isEmpty() && !email.isEmpty()) {
-                            firebaseManager.createTeamLeaderAccount(this, email, password, leader, existingTeam.getId())
-                                    .addOnSuccessListener(uid -> {
-                                        loadingDialog.dismiss();
-                                        UIUtils.showToast(this, "Team updated and leader login provisioned!");
-                                        loadPanelsAndTeams();
-                                    })
-                                    .addOnFailureListener(e -> {
-                                        loadingDialog.dismiss();
-                                        new AlertDialog.Builder(this)
-                                                .setTitle("Team Leader Account Notice")
-                                                .setMessage("Team updated, but leader login could not be provisioned:\n\n" + e.getMessage())
-                                                .setPositiveButton("OK", (d, w) -> d.dismiss())
-                                                .show();
-                                        loadPanelsAndTeams();
-                                    });
-                        } else {
-                            loadingDialog.dismiss();
-                            UIUtils.showToast(this, "Team updated successfully");
-                            loadPanelsAndTeams();
+                    Team newTeam = new Team(null, eventId, panelId, teamNumber, teamName,
+                            teamName + " Project", "General", leaderName, syntheticEmail,
+                            4, "", System.currentTimeMillis());
+                    newTeam.setUsername(username);
+                    newTeam.setEncryptedPassword(encryptedPassword);
+
+                    firebaseManager.createTeam(newTeam)
+                            .addOnSuccessListener(docRef -> {
+                                String teamId = docRef.getId();
+                                newTeam.setId(teamId);
+                                newTeam.setQrCodeData(generateQRDataPayload(teamId, teamNumber, teamName, eventId, panelId));
+                                firebaseManager.updateTeam(newTeam);
+
+                                // Provision Team Leader auth account using the generated username and temporary password
+                                firebaseManager.createTeamLeaderAccountWithUsername(this, username, tempPassword, encryptedPassword, leaderName, teamId)
+                                        .addOnSuccessListener(uid -> {
+                                            loadingDialog.dismiss();
+                                            loadPanelsAndTeams();
+                                            showTeamCredentialsDialog(teamName, leaderName, username, tempPassword);
+                                        })
+                                        .addOnFailureListener(e -> {
+                                            loadingDialog.dismiss();
+                                            loadPanelsAndTeams();
+                                            new AlertDialog.Builder(this)
+                                                    .setTitle("Leader Account Warning")
+                                                    .setMessage("Team '" + teamName + "' was created, but failed to provision login account:\n\n" + e.getMessage())
+                                                    .setPositiveButton("OK", (d, w) -> d.dismiss())
+                                                    .show();
+                                        });
+                            })
+                            .addOnFailureListener(e -> {
+                                loadingDialog.dismiss();
+                                UIUtils.showToast(this, "Failed to create team: " + e.getMessage());
+                            });
+                })
+                .addOnFailureListener(e -> {
+                    loadingDialog.dismiss();
+                    UIUtils.showToast(this, "Failed to generate unique username: " + e.getMessage());
+                });
+    }
+
+    private void showTeamCredentialsDialog(String teamName, String leaderName, String username, String tempPassword) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        View view = LayoutInflater.from(this).inflate(R.layout.dialog_team_credentials, null);
+
+        TextView tvCredTeamName = view.findViewById(R.id.tvCredTeamName);
+        TextView tvCredLeaderName = view.findViewById(R.id.tvCredLeaderName);
+        TextView tvCredUsername = view.findViewById(R.id.tvCredUsername);
+        TextView tvCredPassword = view.findViewById(R.id.tvCredPassword);
+        MaterialButton btnCopyCredentials = view.findViewById(R.id.btnCopyCredentials);
+        MaterialButton btnCloseCredentials = view.findViewById(R.id.btnCloseCredentials);
+
+        tvCredTeamName.setText("Team: " + teamName);
+        tvCredLeaderName.setText("Leader: " + leaderName);
+        tvCredUsername.setText(username);
+        tvCredPassword.setText(tempPassword);
+
+        AlertDialog dialog = builder.setView(view).create();
+
+        btnCopyCredentials.setOnClickListener(v -> {
+            String credsToCopy = "JudgeX Team Credentials\n"
+                    + "Team: " + teamName + "\n"
+                    + "Leader: " + leaderName + "\n"
+                    + "Username: " + username + "\n"
+                    + "Temporary Password: " + tempPassword;
+            android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+            if (clipboard != null) {
+                android.content.ClipData clip = android.content.ClipData.newPlainText("JudgeX Credentials", credsToCopy);
+                clipboard.setPrimaryClip(clip);
+                UIUtils.showToast(this, "Credentials copied to clipboard!");
+            }
+        });
+
+        btnCloseCredentials.setOnClickListener(v -> dialog.dismiss());
+
+        dialog.show();
+    }
+
+    private String generateUniqueTeamNumber(List<Team> teams) {
+        int maxNum = 100;
+        if (teams != null) {
+            for (Team t : teams) {
+                if (t.getTeamNumber() != null && t.getTeamNumber().startsWith("TM-")) {
+                    try {
+                        int num = Integer.parseInt(t.getTeamNumber().substring(3).trim());
+                        if (num > maxNum) {
+                            maxNum = num;
                         }
-                    })
-                    .addOnFailureListener(e -> {
-                        loadingDialog.dismiss();
-                        UIUtils.showToast(this, "Failed to update team: " + e.getMessage());
-                    });
-        } else {
-            Team newTeam = new Team(null, eventId, panelId, number, name, title, category, leader, email, memberCount, "", System.currentTimeMillis());
-            firebaseManager.createTeam(newTeam)
-                    .addOnSuccessListener(docRef -> {
-                        newTeam.setId(docRef.getId());
-                        newTeam.setQrCodeData(generateQRDataPayload(docRef.getId(), number, name, eventId, panelId));
-                        firebaseManager.updateTeam(newTeam);
-
-                        if (!password.isEmpty() && !email.isEmpty()) {
-                            firebaseManager.createTeamLeaderAccount(this, email, password, leader, docRef.getId())
-                                    .addOnSuccessListener(uid -> {
-                                        loadingDialog.dismiss();
-                                        UIUtils.showToast(this, "Team registered and leader login provisioned: " + name);
-                                        loadPanelsAndTeams();
-                                    })
-                                    .addOnFailureListener(e -> {
-                                        loadingDialog.dismiss();
-                                        new AlertDialog.Builder(this)
-                                                .setTitle("Team Leader Account Notice")
-                                                .setMessage("Team registered, but leader login could not be provisioned:\n\n" + e.getMessage())
-                                                .setPositiveButton("OK", (d, w) -> d.dismiss())
-                                                .show();
-                                        loadPanelsAndTeams();
-                                    });
-                        } else {
-                            loadingDialog.dismiss();
-                            UIUtils.showToast(this, "Team registered: " + name);
-                            loadPanelsAndTeams();
-                        }
-                    })
-                    .addOnFailureListener(e -> {
-                        loadingDialog.dismiss();
-                        UIUtils.showToast(this, "Failed to create team: " + e.getMessage());
-                    });
+                    } catch (Exception ignored) {}
+                }
+            }
         }
+        return "TM-" + (maxNum + 1);
+    }
+
+    private void updateExistingTeamDetails(Team existingTeam, String number, String name, String title,
+                                           String category, String leader, int memberCount, String panelId) {
+        Dialog loadingDialog = UIUtils.showLoadingDialog(this, "Updating team...");
+        existingTeam.setTeamNumber(number);
+        existingTeam.setTeamName(name);
+        existingTeam.setProjectTitle(title);
+        existingTeam.setCategory(category);
+        existingTeam.setLeaderName(leader);
+        existingTeam.setMemberCount(memberCount);
+        existingTeam.setPanelId(panelId);
+        existingTeam.setQrCodeData(generateQRDataPayload(existingTeam.getId(), number, name, eventId, panelId));
+
+        firebaseManager.updateTeam(existingTeam)
+                .addOnSuccessListener(aVoid -> {
+                    loadingDialog.dismiss();
+                    UIUtils.showToast(this, "Team updated successfully");
+                    loadPanelsAndTeams();
+                })
+                .addOnFailureListener(e -> {
+                    loadingDialog.dismiss();
+                    UIUtils.showToast(this, "Failed to update team: " + e.getMessage());
+                });
     }
 
     private void handleRandomTeamAssignment() {
@@ -436,7 +535,6 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
 
         String[] options = {
                 "View Team & Leader Details",
-                "Send Password Reset to Leader",
                 "Edit Team Details",
                 "Reassign Panel",
                 "View / Share QR Pass",
@@ -452,21 +550,18 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
                             showTeamDetailsDialog(team);
                             break;
                         case 1:
-                            sendPasswordResetForLeader(team);
-                            break;
-                        case 2:
                             showAddEditTeamDialog(team);
                             break;
-                        case 3:
+                        case 2:
                             showReassignTeamPanelDialog(team);
                             break;
-                        case 4:
+                        case 3:
                             onQRClick(team);
                             break;
-                        case 5:
+                        case 4:
                             handleRemoveTeamFromEvent(team);
                             break;
-                        case 6:
+                        case 5:
                             handleDeleteTeamRecord(team);
                             break;
                     }
@@ -486,27 +581,94 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
             }
         }
 
-        StringBuilder details = new StringBuilder();
-        details.append("🏷️ Team Number: ").append(team.getTeamNumber()).append("\n\n");
-        details.append("🚀 Team Name: ").append(team.getTeamName()).append("\n\n");
-        details.append("💡 Project: ").append(team.getProjectTitle() != null ? team.getProjectTitle() : "N/A").append("\n\n");
-        details.append("📂 Category: ").append(team.getCategory() != null ? team.getCategory() : "General").append("\n\n");
-        details.append("👤 Team Leader: ").append(team.getLeaderName() != null ? team.getLeaderName() : "N/A").append("\n\n");
-        details.append("📧 Leader Email: ").append(team.getLeaderEmail() != null ? team.getLeaderEmail() : "N/A").append("\n\n");
-        details.append("⚖️ Panel Assignment: ").append(panelName).append("\n\n");
-        details.append("👥 Team Members: ").append(team.getMemberCount()).append("\n\n");
-        details.append("🟢 Participation Status: ").append(team.isUnregistered() ? "Unregistered / Removed" : "Active").append("\n\n");
-        details.append("🎫 Event QR Pass: ").append(team.getQrCodeData() != null && !team.getQrCodeData().isEmpty() ? "Generated (v2 Secured)" : "Not Generated");
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Team & Leader Details");
 
-        new AlertDialog.Builder(this)
-                .setTitle("Team & Leader Details")
-                .setMessage(details.toString())
-                .setPositiveButton("Close", (dialog, which) -> dialog.dismiss())
-                .setNeutralButton("View QR Pass", (dialog, which) -> {
-                    dialog.dismiss();
-                    onQRClick(team);
-                })
-                .show();
+        View view = LayoutInflater.from(this).inflate(R.layout.dialog_team_details, null);
+
+        TextView tvTeamNumber = view.findViewById(R.id.tvDetailsTeamNumber);
+        TextView tvTeamName = view.findViewById(R.id.tvDetailsTeamName);
+        TextView tvUsername = view.findViewById(R.id.tvDetailsUsername);
+        View llPasswordRow = view.findViewById(R.id.llDetailsPasswordRow);
+        TextView tvPasswordValue = view.findViewById(R.id.tvDetailsPasswordValue);
+        ImageButton btnTogglePassword = view.findViewById(R.id.btnDetailsTogglePassword);
+        TextView tvProject = view.findViewById(R.id.tvDetailsProject);
+        TextView tvCategory = view.findViewById(R.id.tvDetailsCategory);
+        TextView tvLeaderName = view.findViewById(R.id.tvDetailsLeaderName);
+        TextView tvLeaderEmail = view.findViewById(R.id.tvDetailsLeaderEmail);
+        TextView tvPanel = view.findViewById(R.id.tvDetailsPanel);
+        TextView tvMembers = view.findViewById(R.id.tvDetailsMembers);
+        TextView tvStatus = view.findViewById(R.id.tvDetailsStatus);
+        TextView tvQRPass = view.findViewById(R.id.tvDetailsQRPass);
+
+        tvTeamNumber.setText("🏷️ Team Number: " + (team.getTeamNumber() != null ? team.getTeamNumber() : "N/A"));
+        tvTeamName.setText("🚀 Team Name: " + (team.getTeamName() != null ? team.getTeamName() : "N/A"));
+
+        if (team.getUsername() != null && !team.getUsername().isEmpty()) {
+            tvUsername.setVisibility(View.VISIBLE);
+            tvUsername.setText("🔑 Login Username: " + team.getUsername());
+        } else {
+            tvUsername.setVisibility(View.GONE);
+        }
+
+        // Decrypt the securely stored password generated during team creation
+        String decryptedPassword = CryptoUtils.decrypt(team.getEncryptedPassword());
+        if (!decryptedPassword.isEmpty()) {
+            llPasswordRow.setVisibility(View.VISIBLE);
+            tvPasswordValue.setText("••••••••");
+            final boolean[] isPasswordVisible = {false};
+
+            btnTogglePassword.setOnClickListener(v -> {
+                if (isPasswordVisible[0]) {
+                    // Conceal password
+                    tvPasswordValue.setText("••••••••");
+                    btnTogglePassword.setImageResource(R.drawable.ic_visibility_off);
+                    isPasswordVisible[0] = false;
+                } else {
+                    // Reveal actual password generated during creation
+                    tvPasswordValue.setText(decryptedPassword);
+                    btnTogglePassword.setImageResource(R.drawable.ic_visibility);
+                    isPasswordVisible[0] = true;
+                }
+            });
+
+            // Allow long-click or click on password to copy to clipboard
+            tvPasswordValue.setOnLongClickListener(v -> {
+                android.content.ClipboardManager cb = (android.content.ClipboardManager) getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                if (cb != null) {
+                    android.content.ClipData clip = android.content.ClipData.newPlainText("Team Password", decryptedPassword);
+                    cb.setPrimaryClip(clip);
+                    UIUtils.showToast(this, "Password copied to clipboard!");
+                }
+                return true;
+            });
+        } else {
+            llPasswordRow.setVisibility(View.GONE);
+        }
+
+        tvProject.setText("💡 Project: " + (team.getProjectTitle() != null ? team.getProjectTitle() : "N/A"));
+        tvCategory.setText("📂 Category: " + (team.getCategory() != null ? team.getCategory() : "General"));
+        tvLeaderName.setText("👤 Team Leader: " + (team.getLeaderName() != null ? team.getLeaderName() : "N/A"));
+
+        if (team.getLeaderEmail() != null && !team.getLeaderEmail().isEmpty() && !Constants.isSyntheticEmail(team.getLeaderEmail())) {
+            tvLeaderEmail.setVisibility(View.VISIBLE);
+            tvLeaderEmail.setText("📧 Leader Email: " + team.getLeaderEmail());
+        } else {
+            tvLeaderEmail.setVisibility(View.GONE);
+        }
+
+        tvPanel.setText("⚖️ Panel Assignment: " + panelName);
+        tvMembers.setText("👥 Team Members: " + team.getMemberCount());
+        tvStatus.setText("🟢 Participation Status: " + (team.isUnregistered() ? "Unregistered / Removed" : "Active"));
+        tvQRPass.setText("🎫 Event QR Pass: " + (team.getQrCodeData() != null && !team.getQrCodeData().isEmpty() ? "Generated (v2 Secured)" : "Not Generated"));
+
+        builder.setView(view);
+        builder.setPositiveButton("Close", (dialog, which) -> dialog.dismiss());
+        builder.setNeutralButton("View QR Pass", (dialog, which) -> {
+            dialog.dismiss();
+            onQRClick(team);
+        });
+        builder.show();
     }
 
     private void sendPasswordResetForLeader(Team team) {
@@ -688,5 +850,33 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
         Intent intent = new Intent(this, QRViewActivity.class);
         intent.putExtra(Constants.EXTRA_TEAM, team);
         startActivity(intent);
+    }
+
+    /**
+     * Checks whether a team with the matching Team Name and Team Leader Name already exists
+     * in the event, ignoring capitalization and extra spaces.
+     */
+    public static boolean isDuplicateTeam(List<Team> teams, String teamName, String leaderName) {
+        if (teams == null || teamName == null || leaderName == null) {
+            return false;
+        }
+        String normName = normalizeTeamString(teamName);
+        String normLeader = normalizeTeamString(leaderName);
+        for (Team t : teams) {
+            if (t != null && !t.isDeleted()) {
+                if (normName.equals(normalizeTeamString(t.getTeamName()))
+                        && normLeader.equals(normalizeTeamString(t.getLeaderName()))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public static String normalizeTeamString(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.trim().replaceAll("\\s+", " ").toLowerCase(Locale.US);
     }
 }

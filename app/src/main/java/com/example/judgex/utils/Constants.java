@@ -25,4 +25,38 @@ public class Constants {
     public static final String PREF_NAME = "judgex_prefs";
     public static final String PREF_ACTIVE_EVENT_ID = "active_event_id";
     public static final String PREF_USER_ROLE = "user_role";
+
+    // Username & Synthetic Auth Identifier
+    public static final String SYNTHETIC_EMAIL_DOMAIN = "@team.judgex.internal";
+
+    public static String buildSyntheticEmail(String username) {
+        if (username == null) return "";
+        String trimmed = username.trim().toLowerCase(java.util.Locale.US);
+        if (trimmed.endsWith(SYNTHETIC_EMAIL_DOMAIN)) {
+            return trimmed;
+        }
+        return trimmed + SYNTHETIC_EMAIL_DOMAIN;
+    }
+
+    public static String buildTeamSyntheticEmail(String username) {
+        return buildSyntheticEmail(username);
+    }
+
+    public static boolean isSyntheticEmail(String email) {
+        if (email == null) return false;
+        String lower = email.toLowerCase(java.util.Locale.US);
+        return lower.endsWith(SYNTHETIC_EMAIL_DOMAIN) || lower.endsWith(".judgex.internal");
+    }
+
+    public static String extractUsernameFromSyntheticEmail(String email) {
+        if (email == null) return "";
+        String trimmed = email.trim().toLowerCase(java.util.Locale.US);
+        if (trimmed.endsWith(SYNTHETIC_EMAIL_DOMAIN)) {
+            return trimmed.substring(0, trimmed.length() - SYNTHETIC_EMAIL_DOMAIN.length());
+        }
+        if (trimmed.contains("@")) {
+            return trimmed.substring(0, trimmed.indexOf('@'));
+        }
+        return trimmed;
+    }
 }

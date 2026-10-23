@@ -154,9 +154,26 @@ public class JudgeDashboardActivity extends AppCompatActivity {
                             firebaseManager.setCurrentUserProfile(currentJudge);
 
                             tvJudgeName.setText(currentJudge.getName() != null ? currentJudge.getName() : "Judge");
-                            tvJudgeEmail.setText(currentJudge.getEmail() != null ? currentJudge.getEmail() : "");
+                            if (currentJudge.getUsername() != null && !currentJudge.getUsername().isEmpty()) {
+                                tvJudgeEmail.setText("Username: " + currentJudge.getUsername());
+                            } else if (Constants.isSyntheticEmail(currentJudge.getEmail())) {
+                                tvJudgeEmail.setText("Username: " + Constants.extractUsernameFromSyntheticEmail(currentJudge.getEmail()));
+                            } else {
+                                tvJudgeEmail.setText(currentJudge.getEmail() != null ? currentJudge.getEmail() : "");
+                            }
 
-                            String panelId = currentJudge.getAssignedPanelId();
+                            String assignedEventId = currentJudge.getEventId();
+                            if (assignedEventId != null && !assignedEventId.isEmpty()) {
+                                loadEventDetails(assignedEventId);
+                            }
+
+                            String panelId = null;
+                            if (assignedEventId != null && !assignedEventId.isEmpty()) {
+                                panelId = currentJudge.getPanelForEvent(assignedEventId);
+                            }
+                            if (panelId == null || panelId.isEmpty()) {
+                                panelId = currentJudge.getAssignedPanelId();
+                            }
                             if ((panelId == null || panelId.isEmpty()) && !currentJudge.getEventPanelAssignments().isEmpty()) {
                                 panelId = currentJudge.getEventPanelAssignments().values().iterator().next();
                             }
@@ -165,7 +182,9 @@ public class JudgeDashboardActivity extends AppCompatActivity {
                                 loadPanelDetails(panelId);
                             } else {
                                 tvAssignedPanel.setText("Panel: Unassigned");
-                                tvEventName.setText("Contact admin for assignment");
+                                if (assignedEventId == null || assignedEventId.isEmpty()) {
+                                    tvEventName.setText("Contact admin for assignment");
+                                }
                                 updateTeamsUI();
                                 swipeRefreshLayout.setRefreshing(false);
                             }

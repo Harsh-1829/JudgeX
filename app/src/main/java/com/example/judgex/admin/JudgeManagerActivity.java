@@ -6,6 +6,7 @@ import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.ArrayAdapter;
+import android.widget.ImageButton;
 import android.widget.Spinner;
 import android.widget.TextView;
 
@@ -22,6 +23,7 @@ import com.example.judgex.models.Event;
 import com.example.judgex.models.Panel;
 import com.example.judgex.models.User;
 import com.example.judgex.utils.Constants;
+import com.example.judgex.utils.CryptoUtils;
 import com.example.judgex.utils.UIUtils;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
@@ -99,12 +101,14 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
             tvSelectionCount.setText(count + " selected");
             cbSelectAll.setChecked(count > 0 && count == judgeList.size());
             if (count > 0) {
+                btnAssignToPanel.setVisibility(View.VISIBLE);
+                btnAutoAssign.setVisibility(View.VISIBLE);
                 btnDeleteJudges.setText("Delete (" + count + ")");
                 btnDeleteJudges.setVisibility(View.VISIBLE);
-                btnAutoAssign.setVisibility(View.GONE);
             } else {
+                btnAssignToPanel.setVisibility(View.GONE);
+                btnAutoAssign.setVisibility(View.GONE);
                 btnDeleteJudges.setVisibility(View.GONE);
-                btnAutoAssign.setVisibility(View.VISIBLE);
             }
         });
         recyclerViewJudges.setAdapter(adapter);
@@ -180,7 +184,9 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
                             }
                             // Show in judge list if role is JUDGE (including legacy formats) and not ADMIN or TEAM_LEADER
                             if (user.isJudge() && !user.isAdmin() && !user.isTeamLeader()) {
-                                judgeList.add(user);
+                                if (isJudgeInEvent(user, eventId)) {
+                                    judgeList.add(user);
+                                }
                             }
                         }
                     }
@@ -202,6 +208,19 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
                 });
     }
 
+    public static boolean isJudgeInEvent(User user, String eventId) {
+        if (user == null) return false;
+        if (eventId == null || eventId.trim().isEmpty()) return true;
+        if (eventId.equals(user.getEventId())) return true;
+        if (user.getEventPanelAssignments() != null && user.getEventPanelAssignments().containsKey(eventId)) return true;
+        // Legacy fallback: accounts without eventId or eventPanelAssignments
+        if ((user.getEventId() == null || user.getEventId().isEmpty())
+                && (user.getEventPanelAssignments() == null || user.getEventPanelAssignments().isEmpty())) {
+            return true;
+        }
+        return false;
+    }
+
     private void showAddJudgeDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         View view = LayoutInflater.from(this).inflate(R.layout.dialog_add_judge, null);
@@ -210,18 +229,14 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
         TextInputLayout tilJudgeEmail = view.findViewById(R.id.tilJudgeEmail);
         TextInputLayout tilJudgePassword = view.findViewById(R.id.tilJudgePassword);
         TextInputEditText etJudgeName = view.findViewById(R.id.etJudgeName);
-        TextInputEditText etJudgeEmail = view.findViewById(R.id.etJudgeEmail);
-        TextInputEditText etJudgePassword = view.findViewById(R.id.etJudgePassword);
+        View tvAssignPanelLabel = view.findViewById(R.id.tvAssignPanelLabel);
         Spinner spinnerPanels = view.findViewById(R.id.spinnerPanels);
 
-        List<String> panelNames = new ArrayList<>();
-        panelNames.add("None / Unassigned");
-        for (Panel p : panelList) {
-            panelNames.add(p.getName());
-        }
-
-        ArrayAdapter<String> spinnerAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, panelNames);
-        spinnerPanels.setAdapter(spinnerAdapter);
+        // Ask only for Judge Name: hide email, password, and panel dropdown during creation
+        if (tilJudgeEmail != null) tilJudgeEmail.setVisibility(View.GONE);
+        if (tilJudgePassword != null) tilJudgePassword.setVisibility(View.GONE);
+        if (tvAssignPanelLabel != null) tvAssignPanelLabel.setVisibility(View.GONE);
+        if (spinnerPanels != null) spinnerPanels.setVisibility(View.GONE);
 
         builder.setView(view);
         builder.setPositiveButton("Register Judge", null);
@@ -231,52 +246,97 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
         dialog.setOnShowListener(d -> {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 String name = etJudgeName.getText() != null ? etJudgeName.getText().toString().trim() : "";
-                String email = etJudgeEmail.getText() != null ? etJudgeEmail.getText().toString().trim() : "";
-                String password = etJudgePassword.getText() != null ? etJudgePassword.getText().toString().trim() : "";
 
                 if (TextUtils.isEmpty(name)) {
-                    tilJudgeName.setError("Name is required");
+                    tilJudgeName.setError("Judge name is required");
                     return;
-                }
-                if (TextUtils.isEmpty(email) || !android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
-                    tilJudgeEmail.setError("Valid email is required");
-                    return;
-                }
-                if (TextUtils.isEmpty(password) || password.length() < 6) {
-                    tilJudgePassword.setError("Password must be at least 6 characters");
-                    return;
-                }
-
-                String selectedPanelId = null;
-                int selectedPosition = spinnerPanels.getSelectedItemPosition();
-                if (selectedPosition > 0 && selectedPosition - 1 < panelList.size()) {
-                    selectedPanelId = panelList.get(selectedPosition - 1).getId();
                 }
 
                 dialog.dismiss();
-                registerJudge(name, email, password, selectedPanelId);
+                registerNewJudgeWithGeneratedCredentials(name);
             });
         });
         dialog.show();
     }
 
-    private void registerJudge(String name, String email, String password, String panelId) {
-        Dialog loadingDialog = UIUtils.showLoadingDialog(this, "Registering judge account...");
+    private void registerNewJudgeWithGeneratedCredentials(String name) {
+        Dialog loadingDialog = UIUtils.showLoadingDialog(this, "Generating credentials and registering judge...");
 
-        firebaseManager.createJudgeAccount(this, email, password, name, panelId, eventId)
-                .addOnSuccessListener(uid -> {
-                    loadingDialog.dismiss();
-                    UIUtils.showToast(this, "Judge account ready: " + name);
-                    loadPanelsAndJudges();
+        firebaseManager.generateUniqueJudgeUsername(name)
+                .addOnSuccessListener(username -> {
+                    String tempPassword = FirebaseManager.generateSecureTemporaryPassword();
+                    String encryptedPassword = CryptoUtils.encrypt(tempPassword);
+
+                    firebaseManager.createJudgeAccountWithUsername(this, username, tempPassword, encryptedPassword, name, "", eventId)
+                            .addOnSuccessListener(uid -> {
+                                loadingDialog.dismiss();
+                                UIUtils.showToast(this, "Judge account ready: " + name);
+                                loadPanelsAndJudges();
+                                showJudgeCreatedCredentialsDialog(name, username, tempPassword);
+                            })
+                            .addOnFailureListener(e -> {
+                                loadingDialog.dismiss();
+                                String errorMsg = e.getMessage() != null ? e.getMessage() : "Failed to register judge.";
+                                new AlertDialog.Builder(this)
+                                        .setTitle("Registration Notice")
+                                        .setMessage(errorMsg)
+                                        .setPositiveButton("OK", (d, w) -> d.dismiss())
+                                        .show();
+                            });
                 })
                 .addOnFailureListener(e -> {
                     loadingDialog.dismiss();
-                    new AlertDialog.Builder(this)
-                            .setTitle("Registration Notice")
-                            .setMessage(e.getMessage() != null ? e.getMessage() : "Failed to register judge.")
-                            .setPositiveButton("OK", (d, w) -> d.dismiss())
-                            .show();
+                    UIUtils.showToast(this, "Failed to generate unique username: " + e.getMessage());
                 });
+    }
+
+    private void showJudgeCreatedCredentialsDialog(String name, String username, String password) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        View view = LayoutInflater.from(this).inflate(R.layout.dialog_judge_credentials, null);
+
+        TextView tvCredName = view.findViewById(R.id.tvCredName);
+        TextView tvCredEmail = view.findViewById(R.id.tvCredEmail);
+        TextView tvCredPassword = view.findViewById(R.id.tvCredPassword);
+        MaterialButton btnTogglePassword = view.findViewById(R.id.btnTogglePassword);
+        MaterialButton btnCopyCredentials = view.findViewById(R.id.btnCopyCredentials);
+        MaterialButton btnDoneCredentials = view.findViewById(R.id.btnDoneCredentials);
+
+        tvCredName.setText(name);
+        tvCredEmail.setText("Login Username: " + username);
+
+        final String maskedPassword = "••••••••";
+        final boolean[] isPasswordVisible = {false};
+        tvCredPassword.setText(maskedPassword);
+
+        btnTogglePassword.setOnClickListener(v -> {
+            isPasswordVisible[0] = !isPasswordVisible[0];
+            if (isPasswordVisible[0]) {
+                tvCredPassword.setText(password);
+                btnTogglePassword.setText("Hide");
+            } else {
+                tvCredPassword.setText(maskedPassword);
+                btnTogglePassword.setText("Show");
+            }
+        });
+
+        btnCopyCredentials.setOnClickListener(v -> {
+            String clipText = "JudgeX Credentials:\nName: " + name + "\nUsername: " + username + "\nPassword: " + password;
+            android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (clipboard != null) {
+                android.content.ClipData clip = android.content.ClipData.newPlainText("Judge Credentials", clipText);
+                clipboard.setPrimaryClip(clip);
+                UIUtils.showToast(this, "Credentials copied to clipboard.");
+            }
+        });
+
+        builder.setView(view);
+        AlertDialog dialog = builder.create();
+        btnDoneCredentials.setOnClickListener(v -> dialog.dismiss());
+        dialog.setOnDismissListener(d -> {
+            // Clear temporary password display when dismissed
+            tvCredPassword.setText("");
+        });
+        dialog.show();
     }
 
     @Override
@@ -285,7 +345,7 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
         String[] options = {
                 "View Profile Details",
                 "Edit Judge Name",
-                "Send Password Reset Email",
+                "Reset Password",
                 "Assign / Reassign Panel",
                 "Remove from This Event",
                 statusLabel,
@@ -303,7 +363,7 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
                             showEditJudgeNameDialog(judge);
                             break;
                         case 2:
-                            sendPasswordResetForJudge(judge);
+                            showResetPasswordDialog(judge);
                             break;
                         case 3:
                             showReassignDialog(judge);
@@ -334,91 +394,237 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
         int totalAssignments = judge.getEventPanelAssignments() != null ? judge.getEventPanelAssignments().size() : 0;
         String orgInfo = judge.getOrganizationName() != null ? judge.getOrganizationName() : (judge.getOrganizationId() != null ? judge.getOrganizationId() : "Current Organization");
 
-        StringBuilder details = new StringBuilder();
-        details.append("👤 Full Name: ").append(judge.getName() != null ? judge.getName() : "N/A").append("\n\n");
-        details.append("📧 Email: ").append(judge.getEmail() != null ? judge.getEmail() : "N/A").append("\n\n");
-        details.append("🏛️ Organization: ").append(orgInfo).append("\n\n");
-        details.append("⚖️ Panel (This Event): ").append(panelName).append("\n\n");
-        details.append("📋 Total Event Assignments: ").append(totalAssignments).append("\n\n");
-        details.append("🟢 Status: ").append(judge.isActive() ? "Active" : "Deactivated").append("\n\n");
-        details.append("🔒 Authentication: Managed via Firebase Auth (passwords are encrypted and never stored in plain text).");
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Judge Profile & Account");
 
-        new AlertDialog.Builder(this)
-                .setTitle("Judge Profile & Account")
-                .setMessage(details.toString())
-                .setPositiveButton("Close", (dialog, which) -> dialog.dismiss())
-                .setNeutralButton("Reset Password", (dialog, which) -> {
-                    dialog.dismiss();
-                    sendPasswordResetForJudge(judge);
-                })
-                .show();
+        View view = LayoutInflater.from(this).inflate(R.layout.dialog_judge_details, null);
+
+        TextView tvJudgeName = view.findViewById(R.id.tvDetailsJudgeName);
+        TextView tvUsername = view.findViewById(R.id.tvDetailsUsername);
+        View llPasswordRow = view.findViewById(R.id.llDetailsPasswordRow);
+        TextView tvPasswordValue = view.findViewById(R.id.tvDetailsPasswordValue);
+        ImageButton btnTogglePassword = view.findViewById(R.id.btnDetailsTogglePassword);
+        TextView tvEmail = view.findViewById(R.id.tvDetailsEmail);
+        TextView tvOrganization = view.findViewById(R.id.tvDetailsOrganization);
+        TextView tvPanel = view.findViewById(R.id.tvDetailsPanel);
+        TextView tvAssignments = view.findViewById(R.id.tvDetailsAssignments);
+        TextView tvStatus = view.findViewById(R.id.tvDetailsStatus);
+        TextView tvAuthNote = view.findViewById(R.id.tvDetailsAuthNote);
+
+        tvJudgeName.setText("👤 Full Name: " + (judge.getName() != null ? judge.getName() : "N/A"));
+
+        String username = null;
+        if (judge.getUsername() != null && !judge.getUsername().isEmpty()) {
+            username = judge.getUsername();
+        } else if (Constants.isSyntheticEmail(judge.getEmail())) {
+            username = Constants.extractUsernameFromSyntheticEmail(judge.getEmail());
+        }
+
+        if (username != null && !username.isEmpty()) {
+            tvUsername.setVisibility(View.VISIBLE);
+            tvUsername.setText("🔑 Login Username: " + username);
+        } else {
+            tvUsername.setVisibility(View.GONE);
+        }
+
+        // Decrypt the securely stored password generated during judge creation / reset
+        String decryptedPassword = "";
+        if (judge.getEncryptedSecret() != null && !judge.getEncryptedSecret().isEmpty()) {
+            decryptedPassword = CryptoUtils.decrypt(judge.getEncryptedSecret());
+        }
+
+        if (!decryptedPassword.isEmpty()) {
+            final String finalDecryptedPassword = decryptedPassword;
+            llPasswordRow.setVisibility(View.VISIBLE);
+            tvPasswordValue.setText("••••••••");
+            btnTogglePassword.setVisibility(View.VISIBLE);
+            final boolean[] isPasswordVisible = {false};
+
+            btnTogglePassword.setOnClickListener(v -> {
+                if (isPasswordVisible[0]) {
+                    // Conceal password
+                    tvPasswordValue.setText("••••••••");
+                    btnTogglePassword.setImageResource(R.drawable.ic_visibility_off);
+                    isPasswordVisible[0] = false;
+                } else {
+                    // Reveal actual password generated during creation/reset
+                    tvPasswordValue.setText(finalDecryptedPassword);
+                    btnTogglePassword.setImageResource(R.drawable.ic_visibility);
+                    isPasswordVisible[0] = true;
+                }
+            });
+
+            // Allow click or long-click on password to copy to clipboard
+            tvPasswordValue.setOnLongClickListener(v -> {
+                android.content.ClipboardManager cb = (android.content.ClipboardManager) getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                if (cb != null) {
+                    android.content.ClipData clip = android.content.ClipData.newPlainText("Judge Password", finalDecryptedPassword);
+                    cb.setPrimaryClip(clip);
+                    UIUtils.showToast(this, "Password copied to clipboard!");
+                }
+                return true;
+            });
+        } else {
+            // Password not stored or legacy account
+            llPasswordRow.setVisibility(View.VISIBLE);
+            tvPasswordValue.setText("Not available (Tap Reset)");
+            btnTogglePassword.setVisibility(View.GONE);
+            tvPasswordValue.setOnClickListener(v -> showResetPasswordDialog(judge));
+        }
+
+        if (judge.getEmail() != null && !judge.getEmail().isEmpty() && !Constants.isSyntheticEmail(judge.getEmail())) {
+            tvEmail.setVisibility(View.VISIBLE);
+            tvEmail.setText("📧 Email: " + judge.getEmail());
+        } else {
+            tvEmail.setVisibility(View.GONE);
+        }
+
+        tvOrganization.setText("🏛️ Organization: " + orgInfo);
+        tvPanel.setText("⚖️ Panel (This Event): " + panelName);
+        tvAssignments.setText("📋 Total Event Assignments: " + totalAssignments);
+        tvStatus.setText("🟢 Status: " + (judge.isActive() ? "Active" : "Deactivated"));
+        tvAuthNote.setText("🔒 Authentication: Managed via Firebase Auth (passwords are encrypted and never stored in plain text).");
+
+        builder.setView(view);
+        builder.setPositiveButton("Close", (dialog, which) -> dialog.dismiss());
+        builder.setNeutralButton("Reset Password", (dialog, which) -> {
+            dialog.dismiss();
+            showResetPasswordDialog(judge);
+        });
+        builder.show();
     }
 
     private void showEditJudgeNameDialog(User judge) {
-        final TextInputEditText inputName = new TextInputEditText(this);
-        inputName.setText(judge.getName() != null ? judge.getName() : "");
-        inputName.setHint("Judge Full Name");
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        View view = LayoutInflater.from(this).inflate(R.layout.dialog_edit_judge_name, null);
 
-        TextInputLayout layout = new TextInputLayout(this);
-        layout.setPadding(40, 20, 40, 0);
-        layout.addView(inputName);
+        TextInputLayout tilEditJudgeName = view.findViewById(R.id.tilEditJudgeName);
+        TextInputEditText etEditJudgeName = view.findViewById(R.id.etEditJudgeName);
 
-        new AlertDialog.Builder(this)
-                .setTitle("Edit Judge Name")
-                .setView(layout)
-                .setPositiveButton("Save", (dialog, which) -> {
-                    String newName = inputName.getText() != null ? inputName.getText().toString().trim() : "";
-                    if (TextUtils.isEmpty(newName) || newName.length() < 2) {
-                        UIUtils.showToast(this, "Name must be at least 2 characters.");
-                        return;
-                    }
+        String currentName = judge.getName() != null ? judge.getName() : "";
+        etEditJudgeName.setText(currentName);
+        etEditJudgeName.setSelection(currentName.length());
 
-                    judge.setName(newName);
-                    Dialog loading = UIUtils.showLoadingDialog(this, "Updating judge profile...");
-                    firebaseManager.saveUserProfile(judge)
-                            .addOnSuccessListener(aVoid -> {
-                                loading.dismiss();
-                                UIUtils.showToast(this, "Judge profile updated successfully.");
-                                loadPanelsAndJudges();
-                            })
-                            .addOnFailureListener(e -> {
-                                loading.dismiss();
-                                UIUtils.showToast(this, "Failed to update profile: " + e.getMessage());
-                            });
-                })
-                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
-                .show();
+        builder.setTitle("Edit Judge Name");
+        builder.setView(view);
+        builder.setPositiveButton("Save", null);
+        builder.setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss());
+
+        AlertDialog dialog = builder.create();
+        dialog.setOnShowListener(d -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String newName = etEditJudgeName.getText() != null ? etEditJudgeName.getText().toString().trim() : "";
+                if (TextUtils.isEmpty(newName) || newName.length() < 2) {
+                    tilEditJudgeName.setError("Name must be at least 2 characters.");
+                    return;
+                }
+
+                dialog.dismiss();
+                judge.setName(newName);
+                Dialog loading = UIUtils.showLoadingDialog(JudgeManagerActivity.this, "Updating judge profile...");
+                firebaseManager.saveUserProfile(judge)
+                        .addOnSuccessListener(aVoid -> {
+                            loading.dismiss();
+                            UIUtils.showToast(JudgeManagerActivity.this, "Judge profile updated successfully.");
+                            loadPanelsAndJudges();
+                        })
+                        .addOnFailureListener(e -> {
+                            loading.dismiss();
+                            UIUtils.showToast(JudgeManagerActivity.this, "Failed to update profile: " + e.getMessage());
+                        });
+            });
+        });
+        dialog.show();
     }
 
-    private void sendPasswordResetForJudge(User judge) {
-        String email = judge.getEmail();
-        if (TextUtils.isEmpty(email)) {
-            UIUtils.showToast(this, "This judge does not have a registered email address.");
-            return;
+    private void showResetPasswordDialog(User judge) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        View view = LayoutInflater.from(this).inflate(R.layout.dialog_change_judge_password, null);
+
+        TextInputLayout tilNewPassword = view.findViewById(R.id.tilNewPassword);
+        TextInputLayout tilConfirmPassword = view.findViewById(R.id.tilConfirmPassword);
+        TextInputEditText etNewPassword = view.findViewById(R.id.etNewPassword);
+        TextInputEditText etConfirmPassword = view.findViewById(R.id.etConfirmPassword);
+        MaterialButton btnGenerateRandomPassword = view.findViewById(R.id.btnGenerateRandomPassword);
+
+        if (btnGenerateRandomPassword != null) {
+            btnGenerateRandomPassword.setOnClickListener(v -> {
+                String gen = FirebaseManager.generateSecureTemporaryPassword();
+                etNewPassword.setText(gen);
+                etConfirmPassword.setText(gen);
+                tilNewPassword.setError(null);
+                tilConfirmPassword.setError(null);
+                UIUtils.showToast(this, "Generated secure temporary password");
+            });
         }
 
-        new AlertDialog.Builder(this)
-                .setTitle("Send Password Reset Email")
-                .setMessage("Send an official Firebase Authentication password-reset email to:\n\n" + email +
-                        "\n\nThe judge will receive a secure email link allowing them to choose a new password. No temporary password will be stored or exposed.")
-                .setPositiveButton("Send Reset Email", (dialog, which) -> {
-                    Dialog loading = UIUtils.showLoadingDialog(this, "Sending reset email...");
-                    FirebaseAuth.getInstance().sendPasswordResetEmail(email.trim())
-                            .addOnSuccessListener(aVoid -> {
-                                loading.dismiss();
-                                UIUtils.showToast(this, "Password reset email sent to " + email);
-                            })
-                            .addOnFailureListener(e -> {
-                                loading.dismiss();
-                                new AlertDialog.Builder(this)
-                                        .setTitle("Password Reset Failed")
-                                        .setMessage("Could not send password reset email:\n\n" + e.getMessage())
-                                        .setPositiveButton("OK", (d, w) -> d.dismiss())
-                                        .show();
-                            });
-                })
-                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
-                .show();
+        builder.setTitle("Reset Password: " + (judge.getName() != null ? judge.getName() : "Judge"));
+        builder.setView(view);
+        builder.setPositiveButton("Reset Password", null);
+        builder.setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss());
+
+        AlertDialog dialog = builder.create();
+        dialog.setOnShowListener(d -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String newPass = etNewPassword.getText() != null ? etNewPassword.getText().toString().trim() : "";
+                String confirmPass = etConfirmPassword.getText() != null ? etConfirmPassword.getText().toString().trim() : "";
+
+                if (TextUtils.isEmpty(newPass)) {
+                    tilNewPassword.setError("New password is required.");
+                    return;
+                }
+                if (newPass.length() < 6) {
+                    tilNewPassword.setError("Password must be at least 6 characters (Firebase requirement).");
+                    return;
+                }
+                tilNewPassword.setError(null);
+
+                if (!newPass.equals(confirmPass)) {
+                    tilConfirmPassword.setError("Passwords do not match.");
+                    return;
+                }
+                tilConfirmPassword.setError(null);
+
+                dialog.dismiss();
+                Dialog loading = UIUtils.showLoadingDialog(this, "Resetting judge password in Firebase...");
+                firebaseManager.resetJudgePassword(judge.getUid(), newPass)
+                        .addOnSuccessListener(resultMsg -> {
+                            // Securely encrypt with AES-GCM and store in judge profile
+                            String encryptedSecret = CryptoUtils.encrypt(newPass);
+                            judge.setEncryptedSecret(encryptedSecret);
+                            firebaseManager.saveUserProfile(judge);
+
+                            loading.dismiss();
+                            UIUtils.showToast(JudgeManagerActivity.this, "Password successfully reset for " + judge.getName());
+                            String loginIdentifier = judge.getUsername() != null ? judge.getUsername() : judge.getEmail();
+                            new AlertDialog.Builder(JudgeManagerActivity.this)
+                                    .setTitle("Password Reset Successful")
+                                    .setMessage("The password for " + judge.getName() + " (" + loginIdentifier + ") has been updated in Firebase Authentication.\n\n"
+                                            + "🔑 Login Username: " + loginIdentifier + "\n"
+                                            + "🔒 Login Password: " + newPass)
+                                    .setPositiveButton("OK", (dialogInterface, which) -> dialogInterface.dismiss())
+                                    .setNeutralButton("Copy Password", (dialogInterface, which) -> {
+                                        android.content.ClipboardManager cb = (android.content.ClipboardManager) getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                                        if (cb != null) {
+                                            android.content.ClipData clip = android.content.ClipData.newPlainText("Judge Password", newPass);
+                                            cb.setPrimaryClip(clip);
+                                            UIUtils.showToast(JudgeManagerActivity.this, "Password copied to clipboard!");
+                                        }
+                                    })
+                                    .show();
+                        })
+                        .addOnFailureListener(e -> {
+                            loading.dismiss();
+                            String errMessage = e.getMessage() != null ? e.getMessage() : "Failed to reset password.";
+                            new AlertDialog.Builder(JudgeManagerActivity.this)
+                                    .setTitle("Password Reset Notice")
+                                    .setMessage(errMessage + "\n\nNote: If not yet deployed, deploy the 'resetJudgePassword' Cloud Function using Firebase CLI (firebase deploy --only functions).")
+                                    .setPositiveButton("OK", (dialogInterface, which) -> dialogInterface.dismiss())
+                                    .show();
+                        });
+            });
+        });
+        dialog.show();
     }
 
     private void handleRemoveJudgeFromEvent(User judge) {
@@ -691,7 +897,7 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
                     }
 
                     Dialog loading = UIUtils.showLoadingDialog(this, "Assigning judges to " + targetPanel.getName() + "...");
-                    firebaseManager.batchAssignJudges(assignments, panelList, eventId)
+                    firebaseManager.batchAssignSelectedJudges(assignments, panelList, eventId)
                             .addOnSuccessListener(aVoid -> {
                                 loading.dismiss();
                                 adapter.clearSelection();
@@ -708,7 +914,7 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
     }
 
     private void handleAutoAssignJudges() {
-        if (panelList.isEmpty()) {
+        if (panelList == null || panelList.isEmpty()) {
             new AlertDialog.Builder(this)
                     .setTitle("No Panels Available")
                     .setMessage("No evaluation panels have been created for this event yet. Please open Panel Management and configure panels before assigning judges.")
@@ -717,27 +923,50 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
             return;
         }
 
-        if (judgeList.isEmpty()) {
-            UIUtils.showToast(this, "No registered judges available to assign.");
+        List<User> selectedJudges = adapter.getSelectedJudges();
+        if (selectedJudges.isEmpty()) {
+            UIUtils.showToast(this, "Please select at least one judge to auto-assign.");
             return;
         }
 
-        List<User> targetJudges = adapter.getSelectedJudges();
-        if (targetJudges.isEmpty()) {
-            // Explain what will happen and offer to auto-assign all or cancel to select
-            new AlertDialog.Builder(this)
-                    .setTitle("Auto-Assign Judges")
-                    .setMessage("No specific judges were selected.\n\nWould you like to auto-assign ALL " + judgeList.size() + " available judges balanced evenly across all " + panelList.size() + " panels, or cancel to pick specific judges?")
-                    .setPositiveButton("Auto-Assign All", (dialog, which) -> executeAutoAssign(judgeList))
-                    .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
-                    .show();
-        } else {
-            executeAutoAssign(targetJudges);
-        }
+        executeAutoAssign(selectedJudges);
     }
 
-    private void executeAutoAssign(List<User> judgesToAssign) {
-        List<User> shuffledJudges = new ArrayList<>(judgesToAssign);
+    private void executeAutoAssign(List<User> selectedJudges) {
+        List<User> unassignedJudges = new ArrayList<>();
+        List<User> alreadyAssignedJudges = new ArrayList<>();
+
+        for (User j : selectedJudges) {
+            if (!j.isActive() || j.isDeleted()) {
+                continue;
+            }
+            String currentPanelId = j.getPanelForEvent(eventId);
+            if (currentPanelId != null && !currentPanelId.isEmpty() && panelMap.containsKey(currentPanelId)) {
+                alreadyAssignedJudges.add(j);
+            } else {
+                unassignedJudges.add(j);
+            }
+        }
+
+        if (unassignedJudges.isEmpty()) {
+            StringBuilder msg = new StringBuilder();
+            msg.append("All selected judges (").append(alreadyAssignedJudges.size()).append(") are already assigned to panels for this event:\n\n");
+            for (User j : alreadyAssignedJudges) {
+                String pId = j.getPanelForEvent(eventId);
+                String pName = (pId != null && panelMap.containsKey(pId)) ? panelMap.get(pId).getName() : "Assigned";
+                msg.append("• ").append(j.getName()).append(" -> ").append(pName).append("\n");
+            }
+            msg.append("\nTo reassign an already-assigned judge, use 'Assign Panel' or edit their individual profile.");
+
+            new AlertDialog.Builder(this)
+                    .setTitle("Judges Already Assigned")
+                    .setMessage(msg.toString())
+                    .setPositiveButton("OK", (d, w) -> d.dismiss())
+                    .show();
+            return;
+        }
+
+        List<User> shuffledJudges = new ArrayList<>(unassignedJudges);
         java.util.Collections.shuffle(shuffledJudges);
 
         Map<String, String> judgeToPanelMap = new HashMap<>();
@@ -755,34 +984,40 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
             panelToJudgeNames.get(assignedPanel.getId()).add(judge.getName() != null ? judge.getName() : "Judge");
         }
 
-        // Build preview summary
         StringBuilder summary = new StringBuilder();
-        summary.append("Balancing ").append(shuffledJudges.size()).append(" judges across ").append(panelList.size()).append(" panels:\n\n");
+        summary.append("Auto-assigning ").append(unassignedJudges.size()).append(" unassigned judges across ").append(panelList.size()).append(" panels:\n\n");
         for (Panel p : panelList) {
             List<String> names = panelToJudgeNames.get(p.getId());
             int count = names != null ? names.size() : 0;
-            summary.append("• ").append(p.getName()).append(": ").append(count).append(" judges\n");
+            summary.append("• ").append(p.getName()).append(": +").append(count).append(" judges\n");
             if (names != null) {
                 for (String name : names) {
                     summary.append("    - ").append(name).append("\n");
                 }
             }
         }
+
+        if (!alreadyAssignedJudges.isEmpty()) {
+            summary.append("\nNote: ").append(alreadyAssignedJudges.size()).append(" selected judges are already assigned and will remain on their current panels.\n");
+        }
         summary.append("\nConfirm and apply these assignments?");
 
         new AlertDialog.Builder(this)
-                .setTitle("Auto-Assignment Preview")
+                .setTitle("Auto-Assign " + unassignedJudges.size() + " Judges")
                 .setMessage(summary.toString())
                 .setPositiveButton("Apply Assignments", (dialog, which) -> {
+                    btnAutoAssign.setEnabled(false);
                     Dialog loading = UIUtils.showLoadingDialog(this, "Applying panel assignments...");
-                    firebaseManager.batchAssignJudges(judgeToPanelMap, panelList, eventId)
+                    firebaseManager.batchAssignSelectedJudges(judgeToPanelMap, panelList, eventId)
                             .addOnSuccessListener(aVoid -> {
+                                btnAutoAssign.setEnabled(true);
                                 loading.dismiss();
                                 adapter.clearSelection();
-                                UIUtils.showToast(this, "Judges successfully distributed across panels!");
+                                UIUtils.showToast(this, unassignedJudges.size() + " judges successfully auto-assigned across panels!");
                                 loadPanelsAndJudges();
                             })
                             .addOnFailureListener(e -> {
+                                btnAutoAssign.setEnabled(true);
                                 loading.dismiss();
                                 UIUtils.showToast(this, "Failed to apply assignments: " + e.getMessage());
                             });

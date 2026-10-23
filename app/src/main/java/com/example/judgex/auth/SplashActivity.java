@@ -42,6 +42,8 @@ public class SplashActivity extends AppCompatActivity {
                             firebaseManager.setCurrentUserProfile(user);
                             if (user.isAdmin()) {
                                 startActivity(new Intent(SplashActivity.this, AdminDashboardActivity.class));
+                            } else if (user.isTeamLeader()) {
+                                startActivity(new Intent(SplashActivity.this, com.example.judgex.team.TeamLeaderDashboardActivity.class));
                             } else {
                                 startActivity(new Intent(SplashActivity.this, JudgeDashboardActivity.class));
                             }

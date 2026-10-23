@@ -19,6 +19,9 @@ public class User implements Serializable {
     private String assignedPanelId; // Global/default panel ID for backward compatibility
     private java.util.Map<String, String> eventPanelAssignments; // eventId -> panelId
     private String assignedTeamId; // For Team Leader: associated teamId
+    private String username; // Unique username (e.g. codewarriors4821 or drjanesmith1042)
+    private String encryptedSecret; // AES-GCM encrypted credential token for Admin retrieval
+    private String eventId; // Assigned event ID for event-specific judge account
     private String organizationId; // Multi-college tenant isolation
     private String organizationName;
     private String status; // ACTIVE or INACTIVE
@@ -78,6 +81,15 @@ public class User implements Serializable {
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public static String normalizeJudgeName(String name) {
+        if (name == null) return "";
+        return name.trim().replaceAll("\\s+", " ").toLowerCase(java.util.Locale.US);
+    }
+
+    public String getNormalizedName() {
+        return normalizeJudgeName(this.name);
     }
 
     public String getRole() {
@@ -234,5 +246,29 @@ public class User implements Serializable {
 
     public void setOrganizationName(String organizationName) {
         this.organizationName = organizationName;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public String getEventId() {
+        return eventId;
+    }
+
+    public void setEventId(String eventId) {
+        this.eventId = eventId;
+    }
+
+    public String getEncryptedSecret() {
+        return encryptedSecret;
+    }
+
+    public void setEncryptedSecret(String encryptedSecret) {
+        this.encryptedSecret = encryptedSecret;
     }
 }

@@ -31,6 +31,7 @@ swiperefreshlayout = { group = "androidx.swiperefreshlayout", name = "swiperefre
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-auth = { group = "com.google.firebase", name = "firebase-auth" }
 firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore" }
+firebase-functions = { group = "com.google.firebase", name = "firebase-functions" }
 
 # QR Code Libraries
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCore" }

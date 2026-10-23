@@ -313,6 +313,19 @@ public class QRScannerActivity extends AppCompatActivity {
             return;
         }
 
+        // Security check: Verify event assignment
+        if (!currentJudge.isAdmin()) {
+            String judgeEventId = currentJudge.getEventId();
+            if (judgeEventId != null && !judgeEventId.isEmpty()) {
+                if (!judgeEventId.equals(team.getEventId())) {
+                    hideLoading();
+                    showErrorDialog("Event Mismatch",
+                            "This team belongs to a different competition event. You are only authorized to evaluate teams in your assigned event.");
+                    return;
+                }
+            }
+        }
+
         // Security check: Verify panel assignment (Admins can evaluate any panel)
         if (!currentJudge.isAdmin()) {
             String assignedPanel = currentJudge.getPanelForEvent(team.getEventId());

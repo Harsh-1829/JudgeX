@@ -11,6 +11,7 @@ import com.example.judgex.models.Panel;
 import com.example.judgex.models.Team;
 import com.example.judgex.models.User;
 import com.example.judgex.utils.Constants;
+import com.example.judgex.utils.CryptoUtils;
 import com.google.android.gms.tasks.Task;
 import com.google.android.gms.tasks.TaskCompletionSource;
 import com.google.android.gms.tasks.Tasks;
@@ -28,7 +29,10 @@ import com.google.firebase.firestore.Query;
 import com.google.firebase.firestore.QuerySnapshot;
 import com.google.firebase.firestore.SetOptions;
 import com.google.firebase.firestore.WriteBatch;
+import com.google.firebase.functions.FirebaseFunctions;
+import com.google.firebase.functions.HttpsCallableResult;
 
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -103,9 +107,56 @@ public class FirebaseManager {
         return email != null ? email.trim().toLowerCase(java.util.Locale.US) : "";
     }
 
+    public static String normalizeJudgeName(String name) {
+        return User.normalizeJudgeName(name);
+    }
+
+    /**
+     * Checks if a judge name is unique across existing judges, excluding an optional UID.
+     * Treats names differing only by whitespace or capitalization as duplicates.
+     */
+    public Task<Boolean> isJudgeNameUnique(String name, String excludeUid) {
+        TaskCompletionSource<Boolean> tcs = new TaskCompletionSource<>();
+        final String targetNormalized = normalizeJudgeName(name);
+        if (targetNormalized.isEmpty()) {
+            tcs.setResult(false);
+            return tcs.getTask();
+        }
+
+        db.collection(Constants.COLLECTION_USERS)
+                .get()
+                .addOnSuccessListener(querySnapshot -> {
+                    boolean isUnique = true;
+                    if (querySnapshot != null) {
+                        for (DocumentSnapshot doc : querySnapshot.getDocuments()) {
+                            if (excludeUid != null && doc.getId().equals(excludeUid)) {
+                                continue;
+                            }
+                            User u = doc.toObject(User.class);
+                            if (u != null) {
+                                if (u.isDeleted()) {
+                                    continue;
+                                }
+                                if (u.isJudge()) {
+                                    String existingNorm = normalizeJudgeName(u.getName());
+                                    if (existingNorm.equals(targetNormalized)) {
+                                        isUnique = false;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    tcs.setResult(isUnique);
+                })
+                .addOnFailureListener(tcs::setException);
+
+        return tcs.getTask();
+    }
+
     /**
      * Creates a Judge user without signing out the currently logged-in Admin,
-     * enforcing email normalization, cross-role uniqueness against Team Leaders,
+     * enforcing name uniqueness, email normalization, cross-role uniqueness against Team Leaders,
      * and reusing existing judge profiles for multi-event assignments.
      */
     public Task<String> createJudgeAccount(Context context, String email, String password, String name, String panelId) {
@@ -118,6 +169,12 @@ public class FirebaseManager {
 
         if (normalizedEmail.isEmpty()) {
             tcs.setException(new IllegalArgumentException("Email address cannot be empty"));
+            return tcs.getTask();
+        }
+
+        final String cleanName = name != null ? name.trim() : "";
+        if (normalizeJudgeName(cleanName).isEmpty()) {
+            tcs.setException(new IllegalArgumentException("Judge name cannot be empty"));
             return tcs.getTask();
         }
 
@@ -148,8 +205,9 @@ public class FirebaseManager {
                                 existingUser.setDeleted(false);
                                 existingUser.setStatus(User.STATUS_ACTIVE);
                                 existingUser.setActive(true);
-                                existingUser.setName(name.trim());
+                                existingUser.setName(cleanName);
                                 if (!cleanEventId.isEmpty()) {
+                                    existingUser.setEventId(cleanEventId);
                                     existingUser.setPanelForEvent(cleanEventId, cleanPanelId);
                                 }
                                 if (!cleanPanelId.isEmpty()) {
@@ -174,8 +232,10 @@ public class FirebaseManager {
                             }
 
                             if (existingUser.isJudge()) {
-                                // Priority 5 Requirement 9: Preserve legitimate multi-event judge participation
+                                // Preserve multi-event judge participation
+                                existingUser.setName(cleanName);
                                 if (!cleanEventId.isEmpty()) {
+                                    existingUser.setEventId(cleanEventId);
                                     existingUser.setPanelForEvent(cleanEventId, cleanPanelId);
                                 }
                                 if (!cleanPanelId.isEmpty()) {
@@ -202,7 +262,7 @@ public class FirebaseManager {
                     }
 
                     // No existing user with this email: Provision new Firebase Auth account
-                    provisionNewJudgeAuthAccount(context, normalizedEmail, password, name, cleanPanelId, cleanEventId, tcs);
+                    provisionNewJudgeAuthAccount(context, normalizedEmail, password, cleanName, cleanPanelId, cleanEventId, tcs);
                 })
                 .addOnFailureListener(tcs::setException);
 
@@ -229,6 +289,7 @@ public class FirebaseManager {
                         String newUid = authResult.getUser().getUid();
                         User judgeUser = new User(newUid, normalizedEmail, name.trim(), User.ROLE_JUDGE, cleanPanelId, System.currentTimeMillis());
                         if (!cleanEventId.isEmpty()) {
+                            judgeUser.setEventId(cleanEventId);
                             judgeUser.setPanelForEvent(cleanEventId, cleanPanelId);
                         }
 
@@ -236,6 +297,10 @@ public class FirebaseManager {
                         if (currentUserProfile != null && currentUserProfile.getOrganizationId() != null) {
                             judgeUser.setOrganizationId(currentUserProfile.getOrganizationId());
                             judgeUser.setOrganizationName(currentUserProfile.getOrganizationName());
+                        }
+
+                        if (password != null && !password.isEmpty()) {
+                            judgeUser.setEncryptedSecret(CryptoUtils.encrypt(password));
                         }
 
                         // Save judge user profile in Firestore
@@ -383,6 +448,332 @@ public class FirebaseManager {
         } catch (Exception ignored) {}
     }
 
+    // --- Team Leader Username & Simplified Registration Operations ---
+
+    /**
+     * Sanitizes team name into lowercase alphanumeric string suitable for usernames.
+     * e.g., "Code Warriors" -> "codewarriors"
+     */
+    public static String sanitizeTeamNameForUsername(String teamName) {
+        if (teamName == null) return "team";
+        String sanitized = teamName.toLowerCase(java.util.Locale.US).replaceAll("[^a-z0-9]", "");
+        return sanitized.isEmpty() ? "team" : sanitized;
+    }
+
+    /**
+     * Generates a unique username for a team (e.g. codewarriors4821) by verifying against
+     * existing users and teams in Firestore.
+     */
+    public Task<String> generateUniqueTeamUsername(String teamName) {
+        TaskCompletionSource<String> tcs = new TaskCompletionSource<>();
+        final String base = sanitizeTeamNameForUsername(teamName);
+        findUniqueUsernameRecursive(base, 0, tcs);
+        return tcs.getTask();
+    }
+
+    /**
+     * Sanitizes judge name into lowercase alphanumeric string suitable for usernames.
+     * e.g., "Dr. Jane Smith" -> "drjanesmith"
+     */
+    public static String sanitizeJudgeNameForUsername(String judgeName) {
+        if (judgeName == null) return "judge";
+        String sanitized = judgeName.toLowerCase(java.util.Locale.US).replaceAll("[^a-z0-9]", "");
+        return sanitized.isEmpty() ? "judge" : sanitized;
+    }
+
+    /**
+     * Generates a unique username for a judge (e.g. drjanesmith4821) by verifying against
+     * existing users in Firestore.
+     */
+    public Task<String> generateUniqueJudgeUsername(String judgeName) {
+        TaskCompletionSource<String> tcs = new TaskCompletionSource<>();
+        final String base = sanitizeJudgeNameForUsername(judgeName);
+        findUniqueUsernameRecursive(base, 0, tcs);
+        return tcs.getTask();
+    }
+
+    private void findUniqueUsernameRecursive(String base, int attempt, TaskCompletionSource<String> tcs) {
+        if (attempt >= 10) {
+            // After 10 attempts, append timestamp to guarantee uniqueness
+            String fallback = base + (System.currentTimeMillis() % 100000);
+            tcs.setResult(fallback);
+            return;
+        }
+
+        int randomNum = 1000 + new java.security.SecureRandom().nextInt(9000);
+        String candidate = base + randomNum;
+
+        db.collection(Constants.COLLECTION_USERS)
+                .whereEqualTo("username", candidate)
+                .limit(1)
+                .get()
+                .addOnSuccessListener(userSnap -> {
+                    if (userSnap != null && !userSnap.isEmpty()) {
+                        // Collision in users, retry
+                        findUniqueUsernameRecursive(base, attempt + 1, tcs);
+                    } else {
+                        // Check teams collection
+                        db.collection(Constants.COLLECTION_TEAMS)
+                                .whereEqualTo("username", candidate)
+                                .limit(1)
+                                .get()
+                                .addOnSuccessListener(teamSnap -> {
+                                    if (teamSnap != null && !teamSnap.isEmpty()) {
+                                        findUniqueUsernameRecursive(base, attempt + 1, tcs);
+                                    } else {
+                                        tcs.setResult(candidate);
+                                    }
+                                })
+                                .addOnFailureListener(tcs::setException);
+                    }
+                })
+                .addOnFailureListener(tcs::setException);
+    }
+
+    /**
+     * Generates an 8-character secure random temporary password containing
+     * uppercase, lowercase, and digits. Plaintext passwords are never stored in Firestore.
+     */
+    public static String generateSecureTemporaryPassword() {
+        final String UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // removed easily confused O, I
+        final String LOWER = "abcdefghjkmnpqrstuvwxyz"; // removed l, o
+        final String DIGITS = "23456789";               // removed 0, 1
+        final String ALL = UPPER + LOWER + DIGITS;
+
+        java.security.SecureRandom random = new java.security.SecureRandom();
+        StringBuilder sb = new StringBuilder(8);
+
+        // Ensure at least 1 uppercase, 1 lowercase, 1 digit
+        sb.append(UPPER.charAt(random.nextInt(UPPER.length())));
+        sb.append(LOWER.charAt(random.nextInt(LOWER.length())));
+        sb.append(DIGITS.charAt(random.nextInt(DIGITS.length())));
+
+        for (int i = 3; i < 8; i++) {
+            sb.append(ALL.charAt(random.nextInt(ALL.length())));
+        }
+
+        // Shuffle
+        char[] chars = sb.toString().toCharArray();
+        for (int i = chars.length - 1; i > 0; i--) {
+            int j = random.nextInt(i + 1);
+            char temp = chars[i];
+            chars[i] = chars[j];
+            chars[j] = temp;
+        }
+
+        return new String(chars);
+    }
+
+    /**
+     * Creates a Team Leader user using a unique username and temporary password without
+     * signing out the currently logged-in Admin. Maps the username to a synthetic internal
+     * email identifier. Plaintext passwords are never stored in Firestore.
+     */
+    public Task<String> createTeamLeaderAccountWithUsername(Context context, String username, String password, String name, String teamId) {
+        return createTeamLeaderAccountWithUsername(context, username, password, null, name, teamId);
+    }
+
+    public Task<String> createTeamLeaderAccountWithUsername(Context context, String username, String password, String encryptedPassword, String name, String teamId) {
+        TaskCompletionSource<String> tcs = new TaskCompletionSource<>();
+        final String cleanUsername = username != null ? username.trim().toLowerCase(java.util.Locale.US) : "";
+        final String syntheticEmail = Constants.buildTeamSyntheticEmail(cleanUsername);
+
+        if (cleanUsername.isEmpty()) {
+            tcs.setException(new IllegalArgumentException("Username cannot be empty"));
+            return tcs.getTask();
+        }
+
+        if (password == null || password.length() < 6) {
+            tcs.setException(new IllegalArgumentException("Password must be at least 6 characters"));
+            return tcs.getTask();
+        }
+
+        // Check if username already exists in users collection
+        db.collection(Constants.COLLECTION_USERS)
+                .whereEqualTo("username", cleanUsername)
+                .limit(1)
+                .get()
+                .addOnSuccessListener(querySnapshot -> {
+                    if (querySnapshot != null && !querySnapshot.isEmpty()) {
+                        tcs.setException(new IllegalStateException("Username '" + cleanUsername + "' is already in use."));
+                        return;
+                    }
+
+                    // Provision secondary Auth user
+                    String uniqueAppName = "LeaderCreator_" + System.currentTimeMillis() + "_" + (int)(Math.random() * 10000);
+                    try {
+                        FirebaseOptions options = FirebaseApp.getInstance().getOptions();
+                        FirebaseApp secondaryApp = FirebaseApp.initializeApp(context.getApplicationContext(), options, uniqueAppName);
+                        FirebaseAuth secondaryAuth = FirebaseAuth.getInstance(secondaryApp);
+
+                        secondaryAuth.createUserWithEmailAndPassword(syntheticEmail, password)
+                                .addOnSuccessListener(authResult -> {
+                                    if (authResult.getUser() == null) {
+                                        cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                                        tcs.setException(new Exception("Failed to create leader authentication record"));
+                                        return;
+                                    }
+
+                                    String newUid = authResult.getUser().getUid();
+                                    User leaderUser = new User(newUid, syntheticEmail, name.trim(), User.ROLE_TEAM_LEADER, "", System.currentTimeMillis());
+                                    leaderUser.setUsername(cleanUsername);
+                                    leaderUser.setAssignedTeamId(teamId);
+
+                                    if (currentUserProfile != null && currentUserProfile.getOrganizationId() != null) {
+                                        leaderUser.setOrganizationId(currentUserProfile.getOrganizationId());
+                                        leaderUser.setOrganizationName(currentUserProfile.getOrganizationName());
+                                    }
+
+                                    // Save leader user profile in Firestore
+                                    db.collection(Constants.COLLECTION_USERS).document(newUid).set(leaderUser)
+                                            .addOnSuccessListener(aVoid -> {
+                                                if (teamId != null && !teamId.isEmpty()) {
+                                                    Map<String, Object> teamUpdates = new HashMap<>();
+                                                    teamUpdates.put("leaderUid", newUid);
+                                                    teamUpdates.put("username", cleanUsername);
+                                                    teamUpdates.put("leaderEmail", syntheticEmail);
+                                                    if (encryptedPassword != null && !encryptedPassword.isEmpty()) {
+                                                        teamUpdates.put("encryptedPassword", encryptedPassword);
+                                                    }
+
+                                                    db.collection(Constants.COLLECTION_TEAMS).document(teamId)
+                                                            .update(teamUpdates)
+                                                            .addOnCompleteListener(teamTask -> {
+                                                                cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                                                                tcs.setResult(newUid);
+                                                            });
+                                                } else {
+                                                    cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                                                    tcs.setResult(newUid);
+                                                }
+                                            })
+                                            .addOnFailureListener(e -> {
+                                                cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                                                tcs.setException(e);
+                                            });
+                                })
+                                .addOnFailureListener(e -> {
+                                    cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                                    tcs.setException(e);
+                                });
+                    } catch (Exception e) {
+                        tcs.setException(e);
+                    }
+                })
+                .addOnFailureListener(tcs::setException);
+
+        return tcs.getTask();
+    }
+
+    /**
+     * Creates an event-specific Judge account with a unique username and secure temporary password
+     * without signing out the currently logged-in Admin. Maps the username to a synthetic internal
+     * authentication identifier. Plaintext passwords are never stored in Firestore.
+     */
+    public Task<String> createJudgeAccountWithUsername(Context context, String username, String password, String name, String panelId, String eventId) {
+        return createJudgeAccountWithUsername(context, username, password, null, name, panelId, eventId);
+    }
+
+    public Task<String> createJudgeAccountWithUsername(Context context, String username, String password, String encryptedPassword, String name, String panelId, String eventId) {
+        TaskCompletionSource<String> tcs = new TaskCompletionSource<>();
+        final String cleanUsername = username != null ? username.trim().toLowerCase(java.util.Locale.US) : "";
+        final String syntheticEmail = Constants.buildSyntheticEmail(cleanUsername);
+
+        if (cleanUsername.isEmpty()) {
+            tcs.setException(new IllegalArgumentException("Username cannot be empty"));
+            return tcs.getTask();
+        }
+
+        if (password == null || password.length() < 6) {
+            tcs.setException(new IllegalArgumentException("Password must be at least 6 characters"));
+            return tcs.getTask();
+        }
+
+        final String cleanName = name != null && !name.trim().isEmpty() ? name.trim() : "Judge";
+        final String cleanPanelId = panelId != null ? panelId.trim() : "";
+        final String cleanEventId = eventId != null ? eventId.trim() : "";
+
+        // Verify username is unique in users collection
+        db.collection(Constants.COLLECTION_USERS)
+                .whereEqualTo("username", cleanUsername)
+                .limit(1)
+                .get()
+                .addOnSuccessListener(querySnapshot -> {
+                    if (querySnapshot != null && !querySnapshot.isEmpty()) {
+                        tcs.setException(new IllegalStateException("Username '" + cleanUsername + "' is already in use."));
+                        return;
+                    }
+
+                    // Provision secondary Auth user without logging out Admin
+                    String uniqueAppName = "JudgeCreator_" + System.currentTimeMillis() + "_" + (int)(Math.random() * 10000);
+                    try {
+                        FirebaseOptions options = FirebaseApp.getInstance().getOptions();
+                        FirebaseApp secondaryApp = FirebaseApp.initializeApp(context.getApplicationContext(), options, uniqueAppName);
+                        FirebaseAuth secondaryAuth = FirebaseAuth.getInstance(secondaryApp);
+
+                        secondaryAuth.createUserWithEmailAndPassword(syntheticEmail, password)
+                                .addOnSuccessListener(authResult -> {
+                                    if (authResult.getUser() == null) {
+                                        cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                                        tcs.setException(new Exception("Failed to create judge authentication record"));
+                                        return;
+                                    }
+
+                                    String newUid = authResult.getUser().getUid();
+                                    User judgeUser = new User(newUid, syntheticEmail, cleanName, User.ROLE_JUDGE, cleanPanelId, System.currentTimeMillis());
+                                    judgeUser.setUsername(cleanUsername);
+                                    if (!cleanEventId.isEmpty()) {
+                                        judgeUser.setEventId(cleanEventId);
+                                        if (!cleanPanelId.isEmpty()) {
+                                            judgeUser.setPanelForEvent(cleanEventId, cleanPanelId);
+                                        }
+                                    }
+                                    if (currentUserProfile != null && currentUserProfile.getOrganizationId() != null) {
+                                        judgeUser.setOrganizationId(currentUserProfile.getOrganizationId());
+                                        judgeUser.setOrganizationName(currentUserProfile.getOrganizationName());
+                                    }
+
+                                    if (encryptedPassword != null && !encryptedPassword.isEmpty()) {
+                                        judgeUser.setEncryptedSecret(encryptedPassword);
+                                    } else if (password != null && !password.isEmpty()) {
+                                        judgeUser.setEncryptedSecret(CryptoUtils.encrypt(password));
+                                    }
+
+                                    // Save judge user profile in Firestore
+                                    db.collection(Constants.COLLECTION_USERS).document(newUid).set(judgeUser)
+                                            .addOnSuccessListener(aVoid -> {
+                                                if (!cleanPanelId.isEmpty()) {
+                                                    Map<String, Object> mergeData = new HashMap<>();
+                                                    mergeData.put("judgeIds", FieldValue.arrayUnion(newUid));
+                                                    db.collection(Constants.COLLECTION_PANELS).document(cleanPanelId)
+                                                            .set(mergeData, SetOptions.merge())
+                                                            .addOnCompleteListener(panelTask -> {
+                                                                cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                                                                tcs.setResult(newUid);
+                                                            });
+                                                } else {
+                                                    cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                                                    tcs.setResult(newUid);
+                                                }
+                                            })
+                                            .addOnFailureListener(e -> {
+                                                cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                                                tcs.setException(e);
+                                            });
+                                })
+                                .addOnFailureListener(e -> {
+                                    cleanUpSecondaryApp(secondaryApp, secondaryAuth);
+                                    tcs.setException(e);
+                                });
+                    } catch (Exception e) {
+                        tcs.setException(e);
+                    }
+                })
+                .addOnFailureListener(tcs::setException);
+
+        return tcs.getTask();
+    }
+
     // --- Event Operations ---
 
     public CollectionReference getEventsCollection() {
@@ -523,6 +914,105 @@ public class FirebaseManager {
         }
 
         return batch.commit();
+    }
+
+    /**
+     * Atomically assigns only the specified selected judges to panels without wiping unselected judges.
+     * Moves reassigned judges cleanly by removing them from old panels and adding to new panels.
+     */
+    public Task<Void> batchAssignSelectedJudges(Map<String, String> judgeToPanelMap, List<Panel> allPanels, String eventId) {
+        WriteBatch batch = db.batch();
+
+        Map<String, List<String>> panelToJudgesToAdd = new HashMap<>();
+
+        for (Map.Entry<String, String> entry : judgeToPanelMap.entrySet()) {
+            String judgeId = entry.getKey();
+            String newPanelId = entry.getValue();
+
+            if (newPanelId != null && !newPanelId.isEmpty()) {
+                if (!panelToJudgesToAdd.containsKey(newPanelId)) {
+                    panelToJudgesToAdd.put(newPanelId, new ArrayList<>());
+                }
+                panelToJudgesToAdd.get(newPanelId).add(judgeId);
+
+                DocumentReference userRef = db.collection(Constants.COLLECTION_USERS).document(judgeId);
+                batch.update(userRef, "assignedPanelId", newPanelId);
+                if (eventId != null && !eventId.isEmpty()) {
+                    batch.update(userRef, "eventPanelAssignments." + eventId, newPanelId);
+                }
+
+                // If judge was previously assigned to another panel in this event, remove from that old panel
+                if (allPanels != null) {
+                    for (Panel p : allPanels) {
+                        if (p != null && p.getId() != null && !p.getId().equals(newPanelId)) {
+                            if (p.getJudgeIds() != null && p.getJudgeIds().contains(judgeId)) {
+                                DocumentReference oldPanelRef = db.collection(Constants.COLLECTION_PANELS).document(p.getId());
+                                batch.update(oldPanelRef, "judgeIds", FieldValue.arrayRemove(judgeId));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for (Map.Entry<String, List<String>> pEntry : panelToJudgesToAdd.entrySet()) {
+            DocumentReference pRef = db.collection(Constants.COLLECTION_PANELS).document(pEntry.getKey());
+            batch.update(pRef, "judgeIds", FieldValue.arrayUnion(pEntry.getValue().toArray()));
+        }
+
+        return batch.commit();
+    }
+
+    /**
+     * Resets a judge's password directly via the privileged 'resetJudgePassword' Firebase Cloud Function.
+     * Passes the target judge's Firebase Authentication UID and new password.
+     * The Cloud Function uses Firebase Admin SDK to update the password in Firebase Auth after verifying
+     * the caller's JWT and verifying their ADMIN role in Firestore.
+     * Plaintext passwords are never stored in Firestore or logged.
+     */
+    public Task<String> resetJudgePassword(String judgeUid, String newPassword) {
+        TaskCompletionSource<String> tcs = new TaskCompletionSource<>();
+        if (judgeUid == null || judgeUid.trim().isEmpty()) {
+            tcs.setException(new IllegalArgumentException("Judge identifier (UID) is required."));
+            return tcs.getTask();
+        }
+        if (newPassword == null || newPassword.length() < 6) {
+            tcs.setException(new IllegalArgumentException("Password must be at least 6 characters."));
+            return tcs.getTask();
+        }
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("judgeUid", judgeUid.trim());
+        data.put("newPassword", newPassword);
+
+        FirebaseFunctions.getInstance()
+                .getHttpsCallable("resetJudgePassword")
+                .call(data)
+                .addOnSuccessListener(httpsCallableResult -> {
+                    String message = "Judge password successfully updated in Firebase Authentication.";
+                    if (httpsCallableResult != null && httpsCallableResult.getData() instanceof Map) {
+                        Map<?, ?> resMap = (Map<?, ?>) httpsCallableResult.getData();
+                        if (resMap.get("message") != null) {
+                            message = resMap.get("message").toString();
+                        }
+                    }
+                    tcs.setResult(message);
+                })
+                .addOnFailureListener(tcs::setException);
+
+        return tcs.getTask();
+    }
+
+    /**
+     * Backward-compatible wrapper delegating to resetJudgePassword.
+     */
+    public Task<Void> changeJudgePasswordBackend(String judgeUid, String newPassword) {
+        return resetJudgePassword(judgeUid, newPassword).continueWith(task -> {
+            if (!task.isSuccessful() && task.getException() != null) {
+                throw task.getException();
+            }
+            return null;
+        });
     }
 
     /**

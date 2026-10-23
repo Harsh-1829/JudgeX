@@ -93,7 +93,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
-                    android:hint="Email Address"
+                    android:hint="Username or Email"
                     app:boxStrokeColor="@color/accent"
                     app:hintTextColor="@color/accent">
 
@@ -101,7 +101,7 @@
                         android:id="@+id/etEmail"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:inputType="textEmailAddress"
+                        android:inputType="textEmailAddress|textNoSuggestions"
                         android:textColor="@color/text_primary"
                         android:textSize="15sp" />
 

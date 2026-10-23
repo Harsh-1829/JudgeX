@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.example.judgex.R;
 import com.example.judgex.models.Panel;
 import com.example.judgex.models.User;
+import com.example.judgex.utils.Constants;
 import com.google.android.material.checkbox.MaterialCheckBox;
 
 import java.util.ArrayList;
@@ -100,7 +101,13 @@ public class JudgeAdapter extends RecyclerView.Adapter<JudgeAdapter.JudgeViewHol
     public void onBindViewHolder(@NonNull JudgeViewHolder holder, int position) {
         User judge = judgeList.get(position);
         holder.tvJudgeName.setText(judge.getName() != null ? judge.getName() : "Judge");
-        holder.tvJudgeEmail.setText(judge.getEmail() != null ? judge.getEmail() : "");
+        if (judge.getUsername() != null && !judge.getUsername().isEmpty()) {
+            holder.tvJudgeEmail.setText("Username: " + judge.getUsername());
+        } else if (Constants.isSyntheticEmail(judge.getEmail())) {
+            holder.tvJudgeEmail.setText("Username: " + Constants.extractUsernameFromSyntheticEmail(judge.getEmail()));
+        } else {
+            holder.tvJudgeEmail.setText(judge.getEmail() != null ? judge.getEmail() : "");
+        }
 
         String initial = judge.getName() != null && !judge.getName().isEmpty()
                 ? String.valueOf(judge.getName().charAt(0)).toUpperCase()

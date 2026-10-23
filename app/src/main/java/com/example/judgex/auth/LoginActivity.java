@@ -17,6 +17,7 @@ import com.example.judgex.admin.AdminDashboardActivity;
 import com.example.judgex.data.FirebaseManager;
 import com.example.judgex.judge.JudgeDashboardActivity;
 import com.example.judgex.models.User;
+import com.example.judgex.utils.Constants;
 import com.example.judgex.utils.UIUtils;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.textfield.TextInputEditText;
@@ -63,23 +64,31 @@ public class LoginActivity extends AppCompatActivity {
     }
 
     private void handleLogin() {
-        String email = etEmail.getText() != null ? etEmail.getText().toString().trim() : "";
+        String identifier = etEmail.getText() != null ? etEmail.getText().toString().trim() : "";
         String password = etPassword.getText() != null ? etPassword.getText().toString().trim() : "";
 
         tilEmail.setError(null);
         tilPassword.setError(null);
         tvErrorMessage.setVisibility(View.GONE);
 
-        if (TextUtils.isEmpty(email)) {
-            tilEmail.setError("Email is required");
+        if (TextUtils.isEmpty(identifier)) {
+            tilEmail.setError("Username or Email is required");
             etEmail.requestFocus();
             return;
         }
 
-        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
-            tilEmail.setError("Enter a valid email address");
-            etEmail.requestFocus();
-            return;
+        final boolean isUsernameLogin = !identifier.contains("@");
+        final String authEmail;
+
+        if (isUsernameLogin) {
+            authEmail = Constants.buildTeamSyntheticEmail(identifier);
+        } else {
+            if (!android.util.Patterns.EMAIL_ADDRESS.matcher(identifier).matches()) {
+                tilEmail.setError("Enter a valid email address");
+                etEmail.requestFocus();
+                return;
+            }
+            authEmail = identifier;
         }
 
         if (TextUtils.isEmpty(password)) {
@@ -90,7 +99,7 @@ public class LoginActivity extends AppCompatActivity {
 
         setLoading(true);
 
-        firebaseManager.signIn(email, password)
+        firebaseManager.signIn(authEmail, password)
                 .addOnSuccessListener(authResult -> {
                     FirebaseUser firebaseUser = authResult.getUser();
                     if (firebaseUser != null) {
@@ -103,9 +112,9 @@ public class LoginActivity extends AppCompatActivity {
                 .addOnFailureListener(e -> {
                     setLoading(false);
                     if (e instanceof FirebaseAuthInvalidCredentialsException) {
-                        showError("Invalid email or password. Please check your credentials.");
+                        showError("Invalid credentials. Please verify your " + (isUsernameLogin ? "username" : "email") + " and password.");
                     } else if (e instanceof FirebaseAuthInvalidUserException) {
-                        showError("No account found with this email address.");
+                        showError("No account found for " + (isUsernameLogin ? "username '" + identifier + "'." : "email '" + identifier + "'."));
                     } else {
                         showError(e.getMessage() != null ? e.getMessage() : "Login failed. Please check network connection.");
                     }

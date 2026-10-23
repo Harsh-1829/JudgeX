@@ -17,6 +17,8 @@ public class Team implements Serializable {
     private String leaderName;
     private String leaderEmail;
     private String leaderUid;
+    private String username;   // Unique team username, e.g. codewarriors4821
+    private String encryptedPassword; // AES-GCM encrypted temporary password for Admin retrieval
     private int memberCount;
     private String qrCodeData;
     private String status;
@@ -183,5 +185,21 @@ public class Team implements Serializable {
 
     public boolean isUnregistered() {
         return STATUS_REMOVED.equalsIgnoreCase(status);
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public String getEncryptedPassword() {
+        return encryptedPassword;
+    }
+
+    public void setEncryptedPassword(String encryptedPassword) {
+        this.encryptedPassword = encryptedPassword;
     }
 }
