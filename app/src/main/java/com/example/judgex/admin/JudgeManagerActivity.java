@@ -345,15 +345,18 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
         String[] options = {
                 "View Profile Details",
                 "Edit Judge Name",
-                "Reset Password",
                 "Assign / Reassign Panel",
                 "Remove from This Event",
                 statusLabel,
                 "Delete Judge Account"
         };
 
+        String title = (judge.getName() != null && !judge.getName().trim().isEmpty())
+                ? judge.getName().trim()
+                : "Judge";
+
         new AlertDialog.Builder(this)
-                .setTitle((judge.getName() != null ? judge.getName() : "Judge") + " (" + judge.getEmail() + ")")
+                .setTitle(title)
                 .setItems(options, (dialog, which) -> {
                     switch (which) {
                         case 0:
@@ -363,18 +366,15 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
                             showEditJudgeNameDialog(judge);
                             break;
                         case 2:
-                            showResetPasswordDialog(judge);
-                            break;
-                        case 3:
                             showReassignDialog(judge);
                             break;
-                        case 4:
+                        case 3:
                             handleRemoveJudgeFromEvent(judge);
                             break;
-                        case 5:
+                        case 4:
                             handleToggleJudgeActiveStatus(judge);
                             break;
-                        case 6:
+                        case 5:
                             handleDeleteJudgeAccount(judge);
                             break;
                     }
@@ -467,9 +467,8 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
         } else {
             // Password not stored or legacy account
             llPasswordRow.setVisibility(View.VISIBLE);
-            tvPasswordValue.setText("Not available (Tap Reset)");
+            tvPasswordValue.setText("Not available");
             btnTogglePassword.setVisibility(View.GONE);
-            tvPasswordValue.setOnClickListener(v -> showResetPasswordDialog(judge));
         }
 
         if (judge.getEmail() != null && !judge.getEmail().isEmpty() && !Constants.isSyntheticEmail(judge.getEmail())) {
@@ -487,10 +486,6 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
 
         builder.setView(view);
         builder.setPositiveButton("Close", (dialog, which) -> dialog.dismiss());
-        builder.setNeutralButton("Reset Password", (dialog, which) -> {
-            dialog.dismiss();
-            showResetPasswordDialog(judge);
-        });
         builder.show();
     }
 

@@ -35,7 +35,7 @@ public class JudgeDashboardActivity extends AppCompatActivity {
 
     private SwipeRefreshLayout swipeRefreshLayout;
     private TextView tvJudgeName, tvJudgeEmail, tvAssignedPanel, tvEventName, tvLockedBanner;
-    private TextView tvCountPending, tvCountDrafts, tvCountSubmitted;
+    private TextView tvCountPending, tvCountSubmitted;
     private MaterialButton btnLogout, btnScan, btnViewResults;
     private MaterialCardView cardScanQR, cardJudgeResults;
     private TextView tvResultsStatusHint;
@@ -73,7 +73,6 @@ public class JudgeDashboardActivity extends AppCompatActivity {
         tvEventName = findViewById(R.id.tvEventName);
         tvLockedBanner = findViewById(R.id.tvLockedBanner);
         tvCountPending = findViewById(R.id.tvCountPending);
-        tvCountDrafts = findViewById(R.id.tvCountDrafts);
         tvCountSubmitted = findViewById(R.id.tvCountSubmitted);
         btnLogout = findViewById(R.id.btnLogout);
         btnScan = findViewById(R.id.btnScan);
@@ -321,18 +320,14 @@ public class JudgeDashboardActivity extends AppCompatActivity {
     private void updateTeamsUI() {
         int totalAssigned = assignedTeams.size();
         int totalSubmitted = 0;
-        int totalDrafts = 0;
         for (Team team : assignedTeams) {
             if (evaluatedTeamIds.contains(team.getId())) {
                 totalSubmitted++;
-            } else if (draftTeamIds.contains(team.getId())) {
-                totalDrafts++;
             }
         }
         int totalPending = Math.max(0, totalAssigned - totalSubmitted);
 
         tvCountPending.setText(String.valueOf(totalPending));
-        tvCountDrafts.setText(String.valueOf(totalDrafts));
         tvCountSubmitted.setText(String.valueOf(totalSubmitted));
     }
 }

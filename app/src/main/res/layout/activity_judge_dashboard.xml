@@ -235,44 +235,6 @@
 
                     </com.google.android.material.card.MaterialCardView>
 
-                    <!-- Drafts -->
-                    <com.google.android.material.card.MaterialCardView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginHorizontal="4dp"
-                        android:layout_weight="1"
-                        app:cardCornerRadius="12dp"
-                        app:cardElevation="1dp"
-                        app:strokeWidth="1dp"
-                        app:strokeColor="@color/card_border"
-                        app:cardBackgroundColor="@color/surface">
-
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:orientation="vertical"
-                            android:padding="14dp">
-
-                            <TextView
-                                android:id="@+id/tvCountDrafts"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="0"
-                                android:textColor="@color/accent"
-                                android:textSize="22sp"
-                                android:textStyle="bold" />
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="Drafts"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="12sp" />
-
-                        </LinearLayout>
-
-                    </com.google.android.material.card.MaterialCardView>
-
                     <!-- Submitted -->
                     <com.google.android.material.card.MaterialCardView
                         android:layout_width="0dp"
@@ -410,7 +372,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="12dp"
                             android:lineSpacingExtra="4dp"
-                            android:text="• Tap 'Scan' above and point your camera at a team's official QR badge.\n\n• The evaluation form opens directly for that specific team without displaying other teams.\n\n• In-progress drafts are saved securely and can be resumed at any time by rescanning the QR badge.\n\n• Team listings are hidden on this dashboard to guarantee unbiased, confidential scoring."
+                            android:text="• Tap 'Scan' above and point your camera at a team's official QR badge.\n\n• The evaluation form opens directly for that specific team without displaying other teams.\n\n• Team listings are hidden on this dashboard to guarantee unbiased, confidential scoring."
                             android:textColor="@color/text_secondary"
                             android:textSize="13sp" />
 

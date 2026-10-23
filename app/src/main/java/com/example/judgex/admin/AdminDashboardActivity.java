@@ -45,7 +45,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
     private TextView tvOrgName, tvAdminEmail;
     private TextView tvCountTotalEvents, tvCountActiveEvents, tvCountUpcomingEvents, tvCountCompletedEvents;
     private MaterialButton btnLogout, btnManageEvents;
-    private MaterialCardView cardEventsHub, cardCreateEvent, cardResultsRankings, cardOrgSettings;
+    private MaterialCardView cardEventsHub, cardCreateEvent, cardResultsRankings;
 
     private final FirebaseManager firebaseManager = FirebaseManager.getInstance();
     private User currentAdmin;
@@ -83,7 +83,6 @@ public class AdminDashboardActivity extends AppCompatActivity {
         cardEventsHub = findViewById(R.id.cardEventsHub);
         cardCreateEvent = findViewById(R.id.cardCreateEvent);
         cardResultsRankings = findViewById(R.id.cardResultsRankings);
-        cardOrgSettings = findViewById(R.id.cardOrgSettings);
 
         swipeRefreshLayout.setOnRefreshListener(this::loadAdminProfileAndMetrics);
     }
@@ -108,7 +107,6 @@ public class AdminDashboardActivity extends AppCompatActivity {
 
         cardCreateEvent.setOnClickListener(v -> showCreateEventDialog());
         cardResultsRankings.setOnClickListener(v -> showSelectEventForResultsDialog());
-        cardOrgSettings.setOnClickListener(v -> showOrganizationDetailsDialog());
     }
 
     private void loadAdminProfileAndMetrics() {
@@ -426,26 +424,5 @@ public class AdminDashboardActivity extends AppCompatActivity {
                     loading.dismiss();
                     UIUtils.showToast(this, "Failed to load events: " + e.getMessage());
                 });
-    }
-
-    private void showOrganizationDetailsDialog() {
-        if (currentAdmin == null) return;
-        String orgName = currentAdmin.getOrganizationName() != null ? currentAdmin.getOrganizationName() : "Institution";
-        String orgId = currentAdmin.getOrganizationId() != null ? currentAdmin.getOrganizationId() : "N/A";
-        String adminName = currentAdmin.getName() != null ? currentAdmin.getName() : "Administrator";
-        String adminEmail = currentAdmin.getEmail() != null ? currentAdmin.getEmail() : "N/A";
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("Institution / College: ").append(orgName).append("\n\n");
-        sb.append("Organization ID: ").append(orgId).append("\n\n");
-        sb.append("Administrator: ").append(adminName).append("\n\n");
-        sb.append("Contact Email: ").append(adminEmail).append("\n\n");
-        sb.append("Tenant Scoping: Independent institutional boundaries enforced.");
-
-        new AlertDialog.Builder(this)
-                .setTitle("Organization Settings & Details")
-                .setMessage(sb.toString())
-                .setPositiveButton("OK", null)
-                .show();
     }
 }
