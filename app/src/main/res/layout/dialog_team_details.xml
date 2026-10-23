@@ -17,7 +17,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="14dp"
-            android:text="🏷️ Team Number: "
+            android:text="Team Number: "
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 
@@ -26,7 +26,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="14dp"
-            android:text="🚀 Team Name: "
+            android:text="Team Name: "
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 
@@ -35,7 +35,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="14dp"
-            android:text="🔑 Login Username: "
+            android:text="Login Username: "
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 
@@ -50,7 +50,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="🔒 Login Password: "
+                android:text="Login Password: "
                 android:textColor="@color/text_primary"
                 android:textSize="15sp" />
 
@@ -82,7 +82,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="14dp"
-            android:text="💡 Project: "
+            android:text="Project: "
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 
@@ -91,7 +91,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="14dp"
-            android:text="📂 Category: "
+            android:text="Category: "
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 
@@ -100,7 +100,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="14dp"
-            android:text="👤 Team Leader: "
+            android:text="Team Leader: "
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 
@@ -109,7 +109,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="14dp"
-            android:text="📧 Leader Email: "
+            android:text="Leader Email: "
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 
@@ -118,7 +118,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="14dp"
-            android:text="⚖️ Panel Assignment: "
+            android:text="Panel Assignment: "
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 
@@ -127,7 +127,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="14dp"
-            android:text="👥 Team Members: "
+            android:text="Team Members: "
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 
@@ -136,7 +136,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="14dp"
-            android:text="🟢 Participation Status: "
+            android:text="Participation Status: "
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 
@@ -145,7 +145,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="6dp"
-            android:text="🎫 Event QR Pass: "
+            android:text="Event QR Pass: "
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 

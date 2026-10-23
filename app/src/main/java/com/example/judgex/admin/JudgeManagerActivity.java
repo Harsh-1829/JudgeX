@@ -411,7 +411,7 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
         TextView tvStatus = view.findViewById(R.id.tvDetailsStatus);
         TextView tvAuthNote = view.findViewById(R.id.tvDetailsAuthNote);
 
-        tvJudgeName.setText("👤 Full Name: " + (judge.getName() != null ? judge.getName() : "N/A"));
+        tvJudgeName.setText("Full Name: " + (judge.getName() != null ? judge.getName() : "N/A"));
 
         String username = null;
         if (judge.getUsername() != null && !judge.getUsername().isEmpty()) {
@@ -422,7 +422,7 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
 
         if (username != null && !username.isEmpty()) {
             tvUsername.setVisibility(View.VISIBLE);
-            tvUsername.setText("🔑 Login Username: " + username);
+            tvUsername.setText("Login Username: " + username);
         } else {
             tvUsername.setVisibility(View.GONE);
         }
@@ -474,16 +474,16 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
 
         if (judge.getEmail() != null && !judge.getEmail().isEmpty() && !Constants.isSyntheticEmail(judge.getEmail())) {
             tvEmail.setVisibility(View.VISIBLE);
-            tvEmail.setText("📧 Email: " + judge.getEmail());
+            tvEmail.setText("Email: " + judge.getEmail());
         } else {
             tvEmail.setVisibility(View.GONE);
         }
 
-        tvOrganization.setText("🏛️ Organization: " + orgInfo);
-        tvPanel.setText("⚖️ Panel (This Event): " + panelName);
-        tvAssignments.setText("📋 Total Event Assignments: " + totalAssignments);
-        tvStatus.setText("🟢 Status: " + (judge.isActive() ? "Active" : "Deactivated"));
-        tvAuthNote.setText("🔒 Authentication: Managed via Firebase Auth (passwords are encrypted and never stored in plain text).");
+        tvOrganization.setText("Organization: " + orgInfo);
+        tvPanel.setText("Panel (This Event): " + panelName);
+        tvAssignments.setText("Total Event Assignments: " + totalAssignments);
+        tvStatus.setText("Status: " + (judge.isActive() ? "Active" : "Deactivated"));
+        tvAuthNote.setText("Authentication: Managed via Firebase Auth (passwords are encrypted and never stored in plain text).");
 
         builder.setView(view);
         builder.setPositiveButton("Close", (dialog, which) -> dialog.dismiss());
@@ -600,8 +600,8 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
                             new AlertDialog.Builder(JudgeManagerActivity.this)
                                     .setTitle("Password Reset Successful")
                                     .setMessage("The password for " + judge.getName() + " (" + loginIdentifier + ") has been updated in Firebase Authentication.\n\n"
-                                            + "🔑 Login Username: " + loginIdentifier + "\n"
-                                            + "🔒 Login Password: " + newPass)
+                                            + "Login Username: " + loginIdentifier + "\n"
+                                            + "Login Password: " + newPass)
                                     .setPositiveButton("OK", (dialogInterface, which) -> dialogInterface.dismiss())
                                     .setNeutralButton("Copy Password", (dialogInterface, which) -> {
                                         android.content.ClipboardManager cb = (android.content.ClipboardManager) getSystemService(android.content.Context.CLIPBOARD_SERVICE);
@@ -785,9 +785,7 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
                                 loading.dismiss();
                                 adapter.clearSelection();
                                 loadPanelsAndJudges();
-                                showDeleteOutcomeDialog("Judge Account Deleted",
-                                        result.message + "\n\n" +
-                                        "Note: To permanently remove the login credential from Firebase Authentication without a deployed Cloud Function, delete the user in Firebase Console (Authentication > Users).");
+                                showDeleteOutcomeDialog("Judge Account Deleted", result.message);
                             })
                             .addOnFailureListener(e -> {
                                 loading.dismiss();
@@ -844,10 +842,21 @@ public class JudgeManagerActivity extends AppCompatActivity implements JudgeAdap
                                 loading.dismiss();
                                 adapter.clearSelection();
                                 loadPanelsAndJudges();
-                                showDeleteOutcomeDialog("Batch Deletion Complete",
-                                        validJudges.size() + " judge account(s) successfully processed.\n" +
-                                        "Profiles and panel assignments have been deleted / unassigned.\n\n" +
-                                        "Note: To permanently remove login credentials from Firebase Authentication without a deployed Cloud Function, delete the users in Firebase Console (Authentication > Users).");
+                                int successCount = results != null ? results.size() : 0;
+                                int authDeletedCount = 0;
+                                if (results != null) {
+                                    for (FirebaseManager.DeleteJudgeResult r : results) {
+                                        if (r.authDeleted) authDeletedCount++;
+                                    }
+                                }
+                                String msg = successCount + " judge account(s) successfully processed.\n" +
+                                        "Profiles and panel assignments have been deleted / unassigned.\n";
+                                if (authDeletedCount == successCount && successCount > 0) {
+                                    msg += "\nFirebase Authentication accounts were also successfully deleted.";
+                                } else {
+                                    msg += "\nNote: To permanently remove login credentials from Firebase Authentication without a deployed Cloud Function, delete the users in Firebase Console (Authentication > Users).";
+                                }
+                                showDeleteOutcomeDialog("Batch Deletion Complete", msg);
                             })
                             .addOnFailureListener(e -> {
                                 loading.dismiss();

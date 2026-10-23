@@ -132,6 +132,9 @@ public class PanelManagerActivity extends AppCompatActivity implements PanelAdap
 
         builder.setView(view);
         builder.setPositiveButton(existingPanel != null ? "Update" : "Save", null);
+        if (existingPanel != null) {
+            builder.setNeutralButton("Delete", (dialog, which) -> confirmDeletePanel(existingPanel));
+        }
         builder.setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss());
 
         AlertDialog dialog = builder.create();
@@ -150,6 +153,36 @@ public class PanelManagerActivity extends AppCompatActivity implements PanelAdap
             });
         });
         dialog.show();
+    }
+
+    private void confirmDeletePanel(Panel panel) {
+        int judgeCount = panel.getJudgeIds() != null ? panel.getJudgeIds().size() : 0;
+        int teamCount = panel.getTeamIds() != null ? panel.getTeamIds().size() : 0;
+        boolean hasDependencies = judgeCount > 0 || teamCount > 0;
+
+        String warning = hasDependencies
+                ? "WARNING: Deleting panel '" + panel.getName() + "' will unassign " + judgeCount + 
+                  " judge(s) and " + teamCount + " team(s) from this panel.\n\n" +
+                  "Historical evaluations and team scores are safely preserved.\n\nProceed with panel deletion?"
+                : "Are you sure you want to permanently delete panel '" + panel.getName() + "'?";
+
+        UIUtils.showConfirmationDialog(this, "Delete Panel: " + panel.getName(), warning, "Delete Panel", () -> {
+            Dialog loading = UIUtils.showLoadingDialog(this, "Deleting panel and unassigning records...");
+            firebaseManager.deletePanel(panel)
+                    .addOnSuccessListener(aVoid -> {
+                        loading.dismiss();
+                        UIUtils.showToast(this, "Panel deleted successfully.");
+                        loadPanels();
+                    })
+                    .addOnFailureListener(e -> {
+                        loading.dismiss();
+                        new AlertDialog.Builder(this)
+                                .setTitle("Deletion Failed")
+                                .setMessage("Failed to delete panel: " + e.getMessage())
+                                .setPositiveButton("OK", (d, w) -> d.dismiss())
+                                .show();
+                    });
+        });
     }
 
     private void savePanel(Panel existingPanel, String name, String venue) {
@@ -188,3 +221,4 @@ public class PanelManagerActivity extends AppCompatActivity implements PanelAdap
         showAddEditPanelDialog(panel);
     }
 }
+

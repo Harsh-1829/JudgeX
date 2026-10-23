@@ -54,7 +54,7 @@ public class TeamAdapter extends RecyclerView.Adapter<TeamAdapter.TeamViewHolder
 
         String leader = team.getLeaderName() != null ? team.getLeaderName() : "Leader";
         int members = team.getMemberCount() > 0 ? team.getMemberCount() : 1;
-        holder.tvLeader.setText("👤 " + leader + " (" + members + " members)");
+        holder.tvLeader.setText(leader + " (" + members + " members)");
 
         if (team.isUnregistered()) {
             holder.tvEvaluationStatus.setText("UNREGISTERED");

@@ -273,11 +273,11 @@ public class TeamLeaderDashboardActivity extends AppCompatActivity {
         tvProjectTitle.setText(team.getProjectTitle() != null ? team.getProjectTitle() : "Project Title");
         tvCategory.setText(team.getCategory() != null ? team.getCategory() : "General");
         if (team.isUnregistered()) {
-            tvRegistrationBadge.setText("⚠️ Unregistered");
+            tvRegistrationBadge.setText("Unregistered");
             tvRegistrationBadge.setBackgroundResource(R.drawable.bg_badge_locked);
             tvRegistrationBadge.setTextColor(ContextCompat.getColor(this, R.color.danger));
         } else {
-            tvRegistrationBadge.setText("✓ Registered");
+            tvRegistrationBadge.setText("Registered");
             tvRegistrationBadge.setBackgroundResource(R.drawable.bg_badge_success);
             tvRegistrationBadge.setTextColor(ContextCompat.getColor(this, R.color.success));
         }
@@ -315,19 +315,19 @@ public class TeamLeaderDashboardActivity extends AppCompatActivity {
                                 currentPanel.setId(pDoc.getId());
                                 String venue = currentPanel.getVenue() != null && !currentPanel.getVenue().isEmpty()
                                         ? " (" + currentPanel.getVenue() + ")" : "";
-                                tvAssignedPanel.setText("🏛️ " + currentPanel.getName() + venue);
+                                tvAssignedPanel.setText(currentPanel.getName() + venue);
                                 return;
                             }
                         }
-                        tvAssignedPanel.setText("🏛️ Panel Assigned");
+                        tvAssignedPanel.setText("Panel Assigned");
                     })
                     .addOnFailureListener(e -> {
                         swipeRefreshLayout.setRefreshing(false);
-                        tvAssignedPanel.setText("🏛️ Panel Assigned");
+                        tvAssignedPanel.setText("Panel Assigned");
                     });
         } else {
             swipeRefreshLayout.setRefreshing(false);
-            tvAssignedPanel.setText("⏳ Awaiting Panel Assignment");
+            tvAssignedPanel.setText("Awaiting Panel Assignment");
         }
     }
 

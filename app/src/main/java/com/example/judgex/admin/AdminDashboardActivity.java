@@ -149,14 +149,15 @@ public class AdminDashboardActivity extends AppCompatActivity {
     private void loadEventsMetrics(String orgId) {
         firebaseManager.getEventsForOrganization(orgId)
                 .addOnSuccessListener(querySnapshot -> {
-                    int total = querySnapshot.size();
+                    int total = 0;
                     int active = 0;
                     int upcoming = 0;
                     int completed = 0;
 
                     for (DocumentSnapshot doc : querySnapshot.getDocuments()) {
                         Event e = doc.toObject(Event.class);
-                        if (e != null) {
+                        if (e != null && !e.isDeleted()) {
+                            total++;
                             String st = e.getStatus();
                             if (Event.STATUS_ACTIVE.equalsIgnoreCase(st)) {
                                 active++;
@@ -435,11 +436,11 @@ public class AdminDashboardActivity extends AppCompatActivity {
         String adminEmail = currentAdmin.getEmail() != null ? currentAdmin.getEmail() : "N/A";
 
         StringBuilder sb = new StringBuilder();
-        sb.append("🏛️ Institution / College: ").append(orgName).append("\n\n");
-        sb.append("🆔 Organization ID: ").append(orgId).append("\n\n");
-        sb.append("👤 Administrator: ").append(adminName).append("\n\n");
-        sb.append("📧 Contact Email: ").append(adminEmail).append("\n\n");
-        sb.append("🔒 Tenant Scoping: Independent institutional boundaries enforced.");
+        sb.append("Institution / College: ").append(orgName).append("\n\n");
+        sb.append("Organization ID: ").append(orgId).append("\n\n");
+        sb.append("Administrator: ").append(adminName).append("\n\n");
+        sb.append("Contact Email: ").append(adminEmail).append("\n\n");
+        sb.append("Tenant Scoping: Independent institutional boundaries enforced.");
 
         new AlertDialog.Builder(this)
                 .setTitle("Organization Settings & Details")

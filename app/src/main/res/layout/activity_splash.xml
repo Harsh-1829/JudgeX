@@ -21,8 +21,10 @@
             android:layout_height="88dp"
             android:background="@drawable/bg_badge_judge"
             android:gravity="center"
-            android:text="⚖️"
-            android:textSize="40sp" />
+            android:text="JX"
+            android:textColor="@color/white"
+            android:textStyle="bold"
+            android:textSize="32sp" />
 
         <TextView
             android:layout_width="wrap_content"

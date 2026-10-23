@@ -30,7 +30,6 @@ public class LoginActivity extends AppCompatActivity {
 
     private TextInputLayout tilEmail, tilPassword;
     private TextInputEditText etEmail, etPassword;
-    private TextView tvForgotPassword;
     private MaterialButton btnLogin;
     private ProgressBar progressBar;
     private TextView tvErrorMessage;
@@ -50,17 +49,11 @@ public class LoginActivity extends AppCompatActivity {
         tilPassword = findViewById(R.id.tilPassword);
         etEmail = findViewById(R.id.etEmail);
         etPassword = findViewById(R.id.etPassword);
-        tvForgotPassword = findViewById(R.id.tvForgotPassword);
         btnLogin = findViewById(R.id.btnLogin);
         progressBar = findViewById(R.id.progressBar);
         tvErrorMessage = findViewById(R.id.tvErrorMessage);
-        MaterialButton btnRegisterAdmin = findViewById(R.id.btnRegisterAdmin);
 
         btnLogin.setOnClickListener(v -> handleLogin());
-        tvForgotPassword.setOnClickListener(v -> showForgotPasswordDialog());
-        if (btnRegisterAdmin != null) {
-            btnRegisterAdmin.setOnClickListener(v -> startActivity(new Intent(LoginActivity.this, RegisterAdminActivity.class)));
-        }
     }
 
     private void handleLogin() {
@@ -190,55 +183,6 @@ public class LoginActivity extends AppCompatActivity {
             return;
         }
         finish();
-    }
-
-    private void showForgotPasswordDialog() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Reset Password");
-        builder.setMessage("Enter your registered email address to receive password reset instructions.");
-
-        View view = LayoutInflater.from(this).inflate(R.layout.dialog_add_event, null);
-        TextInputLayout til = view.findViewById(R.id.tilEventName);
-        til.setHint("Registered Email");
-        TextInputEditText et = view.findViewById(R.id.etEventName);
-        et.setInputType(android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
-        
-        // Hide unused description input
-        TextInputLayout tilDesc = view.findViewById(R.id.tilEventDescription);
-        tilDesc.setVisibility(View.GONE);
-        
-        String prefillEmail = etEmail.getText() != null ? etEmail.getText().toString().trim() : "";
-        if (!prefillEmail.isEmpty()) {
-            et.setText(prefillEmail);
-        }
-
-        builder.setView(view);
-        builder.setPositiveButton("Send Reset Link", null);
-        builder.setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss());
-
-        AlertDialog dialog = builder.create();
-        dialog.setOnShowListener(d -> {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                String email = et.getText() != null ? et.getText().toString().trim() : "";
-                if (TextUtils.isEmpty(email) || !android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
-                    til.setError("Enter a valid email address");
-                    return;
-                }
-
-                dialog.dismiss();
-                Dialog loading = UIUtils.showLoadingDialog(this, "Sending password reset email...");
-                firebaseManager.getAuth().sendPasswordResetEmail(email)
-                        .addOnSuccessListener(aVoid -> {
-                            loading.dismiss();
-                            UIUtils.showToast(this, "Password reset instructions sent to " + email);
-                        })
-                        .addOnFailureListener(e -> {
-                            loading.dismiss();
-                            UIUtils.showToast(this, "Failed to send reset email: " + e.getMessage());
-                        });
-            });
-        });
-        dialog.show();
     }
 
     private void setLoading(boolean isLoading) {

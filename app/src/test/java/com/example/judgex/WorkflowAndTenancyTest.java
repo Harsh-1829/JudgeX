@@ -461,16 +461,18 @@ public class WorkflowAndTenancyTest {
         StringBuilder scheduleVenue = new StringBuilder();
         if (legacyEvent.getScheduledDate() > 0) {
             java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.US);
-            scheduleVenue.append("📅 ").append(sdf.format(new java.util.Date(legacyEvent.getScheduledDate())));
+            scheduleVenue.append(sdf.format(new java.util.Date(legacyEvent.getScheduledDate())));
         }
         if (legacyEvent.getStartTime() != null && !legacyEvent.getStartTime().isEmpty()) {
-            scheduleVenue.append(" • ").append(legacyEvent.getStartTime());
+            if (scheduleVenue.length() > 0) scheduleVenue.append(" • ");
+            scheduleVenue.append(legacyEvent.getStartTime());
             if (legacyEvent.getEndTime() != null && !legacyEvent.getEndTime().isEmpty()) {
                 scheduleVenue.append(" - ").append(legacyEvent.getEndTime());
             }
         }
         if (legacyEvent.getVenue() != null && !legacyEvent.getVenue().isEmpty()) {
-            scheduleVenue.append(" • 📍 ").append(legacyEvent.getVenue());
+            if (scheduleVenue.length() > 0) scheduleVenue.append(" • ");
+            scheduleVenue.append(legacyEvent.getVenue());
         }
 
         // Must produce empty string and not throw NullPointerException

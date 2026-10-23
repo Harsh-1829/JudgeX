@@ -131,7 +131,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
-                        android:text="👤 Leader: Jane Doe (4 members)"
+                        android:text="Leader: Jane Doe (4 members)"
                         android:textColor="@color/text_muted"
                         android:textSize="12sp" />
 
@@ -269,36 +269,18 @@
 
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- Action Buttons: Save Draft & Submit -->
-            <LinearLayout
+            <!-- Submit Evaluation Button -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSubmitEvaluation"
+                style="@style/Button.Primary"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="54dp"
                 android:layout_marginHorizontal="16dp"
                 android:layout_marginTop="24dp"
-                android:orientation="horizontal">
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnSaveDraft"
-                    style="@style/Widget.Material3.Button.OutlinedButton"
-                    android:layout_width="0dp"
-                    android:layout_height="54dp"
-                    android:layout_marginEnd="8dp"
-                    android:layout_weight="1"
-                    android:text="Save Draft"
-                    android:textSize="14sp" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnSubmitEvaluation"
-                    style="@style/Button.Primary"
-                    android:layout_width="0dp"
-                    android:layout_height="54dp"
-                    android:layout_marginStart="8dp"
-                    android:layout_weight="1.4"
-                    android:text="Submit Evaluation"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-            </LinearLayout>
+                android:layout_marginBottom="24dp"
+                android:text="Submit Evaluation"
+                android:textSize="15sp"
+                android:textStyle="bold" />
 
         </LinearLayout>
 

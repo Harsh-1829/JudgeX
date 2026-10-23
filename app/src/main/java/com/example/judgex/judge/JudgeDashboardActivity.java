@@ -208,7 +208,7 @@ public class JudgeDashboardActivity extends AppCompatActivity {
                             currentPanel.setId(doc.getId());
                             String venue = currentPanel.getVenue() != null && !currentPanel.getVenue().isEmpty() 
                                     ? " (" + currentPanel.getVenue() + ")" : "";
-                            tvAssignedPanel.setText("🏛️ " + currentPanel.getName() + venue);
+                            tvAssignedPanel.setText(currentPanel.getName() + venue);
 
                             if (currentPanel.getEventId() != null) {
                                 loadEventDetails(currentPanel.getEventId());

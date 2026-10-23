@@ -504,7 +504,7 @@ public class EventManagerActivity extends AppCompatActivity implements EventAdap
                                         .setTitle("Delete Event: " + event.getName());
 
                                 if (hasHistory) {
-                                    builder.setMessage("⚠️ Warning: '" + event.getName() + "' has " + teamCount + 
+                                    builder.setMessage("Warning: '" + event.getName() + "' has " + teamCount + 
                                             " registered team(s) and " + evalCount + " evaluation record(s).\n\n" +
                                             "To preserve historical competition scores, rankings, and audit integrity without destructive data loss, this event will be safely marked as DELETED and hidden from ordinary workflows.\n\n" +
                                             "Are you sure you want to proceed?")
@@ -514,6 +514,10 @@ public class EventManagerActivity extends AppCompatActivity implements EventAdap
                                                 event.setStatus(Event.STATUS_ARCHIVED);
                                                 firebaseManager.updateEvent(event)
                                                         .addOnSuccessListener(aVoid -> {
+                                                            if (event.getId() != null && event.getId().equals(activeEventId)) {
+                                                                activeEventId = "";
+                                                                prefs.edit().remove(Constants.PREF_ACTIVE_EVENT_ID).apply();
+                                                            }
                                                             loading.dismiss();
                                                             UIUtils.showToast(this, "Event soft-deleted and archived.");
                                                             loadEvents();
@@ -522,15 +526,45 @@ public class EventManagerActivity extends AppCompatActivity implements EventAdap
                                                             loading.dismiss();
                                                             UIUtils.showToast(this, "Failed to delete event: " + e.getMessage());
                                                         });
+                                            })
+                                            .setNeutralButton("Permanent Purge", (dialog, which) -> {
+                                                new AlertDialog.Builder(this)
+                                                        .setTitle("Purge All Event Data: " + event.getName())
+                                                        .setMessage("DANGER: Permanently purging '" + event.getName() + "' will delete this event, its " + 
+                                                                teamCount + " team(s), panels, criteria, and " + evalCount + " evaluation score(s).\n\n" +
+                                                                "This destructive action cannot be undone.\n\nProceed with permanent purge?")
+                                                        .setPositiveButton("Permanently Purge All", (d2, w2) -> {
+                                                            Dialog loading = UIUtils.showLoadingDialog(this, "Purging event data...");
+                                                            firebaseManager.cascadeDeleteEvent(event.getId(), true)
+                                                                    .addOnSuccessListener(aVoid -> {
+                                                                        if (event.getId() != null && event.getId().equals(activeEventId)) {
+                                                                            activeEventId = "";
+                                                                            prefs.edit().remove(Constants.PREF_ACTIVE_EVENT_ID).apply();
+                                                                        }
+                                                                        loading.dismiss();
+                                                                        UIUtils.showToast(this, "Event and dependent records permanently deleted.");
+                                                                        loadEvents();
+                                                                    })
+                                                                    .addOnFailureListener(e -> {
+                                                                        loading.dismiss();
+                                                                        UIUtils.showToast(this, "Failed to purge event: " + e.getMessage());
+                                                                    });
+                                                        })
+                                                        .setNegativeButton("Cancel", (d2, w2) -> d2.dismiss())
+                                                        .show();
                                             });
                                 } else {
-                                    builder.setMessage("This event has no registered teams, criteria, or evaluations.\n\n" +
-                                            "It will be permanently removed from the competition database.\n\n" +
+                                    builder.setMessage("This event has no registered teams or evaluations.\n\n" +
+                                            "It will be permanently removed from the competition database along with any configured panels and criteria.\n\n" +
                                             "Are you sure you want to permanently delete '" + event.getName() + "'?")
                                             .setPositiveButton("Permanently Delete", (dialog, which) -> {
                                                 Dialog loading = UIUtils.showLoadingDialog(this, "Deleting event permanently...");
-                                                firebaseManager.deleteEvent(event.getId())
+                                                firebaseManager.cascadeDeleteEvent(event.getId(), true)
                                                         .addOnSuccessListener(aVoid -> {
+                                                            if (event.getId() != null && event.getId().equals(activeEventId)) {
+                                                                activeEventId = "";
+                                                                prefs.edit().remove(Constants.PREF_ACTIVE_EVENT_ID).apply();
+                                                            }
                                                             loading.dismiss();
                                                             UIUtils.showToast(this, "Event permanently deleted.");
                                                             loadEvents();
@@ -579,22 +613,58 @@ public class EventManagerActivity extends AppCompatActivity implements EventAdap
                 .setSingleChoiceItems(statuses, currentSelection, (dialog, which) -> {
                     String newStatus = statuses[which];
                     dialog.dismiss();
-                    Dialog loading = UIUtils.showLoadingDialog(this, "Updating status to " + newStatus + "...");
-                    event.setStatus(newStatus);
-                    event.setLocked(Event.STATUS_LOCKED.equalsIgnoreCase(newStatus));
 
-                    firebaseManager.updateEvent(event)
-                            .addOnSuccessListener(aVoid -> {
-                                loading.dismiss();
-                                UIUtils.showToast(this, "Event status set to " + newStatus);
-                                loadEvents();
-                            })
-                            .addOnFailureListener(e -> {
-                                loading.dismiss();
-                                UIUtils.showToast(this, "Failed to update status: " + e.getMessage());
-                            });
+                    if (Event.STATUS_COMPLETED.equalsIgnoreCase(newStatus)
+                            && com.example.judgex.utils.ScoringValidationUtils.isWeightedScoring(event)) {
+                        Dialog checking = UIUtils.showLoadingDialog(this, "Validating criteria weights...");
+                        firebaseManager.getCriteriaForEvent(event.getId())
+                                .addOnSuccessListener(querySnapshot -> {
+                                    checking.dismiss();
+                                    List<com.example.judgex.models.Criterion> list = new ArrayList<>();
+                                    for (DocumentSnapshot doc : querySnapshot.getDocuments()) {
+                                        com.example.judgex.models.Criterion c = doc.toObject(com.example.judgex.models.Criterion.class);
+                                        if (c != null) list.add(c);
+                                    }
+                                    if (!com.example.judgex.utils.ScoringValidationUtils.isTotalWeightValid(list)) {
+                                        double total = com.example.judgex.utils.ScoringValidationUtils.calculateTotalWeight(list);
+                                        new AlertDialog.Builder(this)
+                                                .setTitle("Result Publishing Blocked")
+                                                .setMessage("Cannot mark event as COMPLETED or publish final results: Evaluation criteria weights total " 
+                                                        + com.example.judgex.utils.ScoringValidationUtils.formatWeight(total) 
+                                                        + ", but must total exactly 100%.\n\nPlease balance the criteria weights in Criteria Management to 100% before publishing results.")
+                                                .setPositiveButton("OK", null)
+                                                .show();
+                                        return;
+                                    }
+                                    applyEventStatusUpdate(event, newStatus);
+                                })
+                                .addOnFailureListener(e -> {
+                                    checking.dismiss();
+                                    UIUtils.showToast(this, "Failed to verify criteria weights: " + e.getMessage());
+                                });
+                        return;
+                    }
+
+                    applyEventStatusUpdate(event, newStatus);
                 })
                 .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
                 .show();
+    }
+
+    private void applyEventStatusUpdate(Event event, String newStatus) {
+        Dialog loading = UIUtils.showLoadingDialog(this, "Updating status to " + newStatus + "...");
+        event.setStatus(newStatus);
+        event.setLocked(Event.STATUS_LOCKED.equalsIgnoreCase(newStatus));
+
+        firebaseManager.updateEvent(event)
+                .addOnSuccessListener(aVoid -> {
+                    loading.dismiss();
+                    UIUtils.showToast(this, "Event status set to " + newStatus);
+                    loadEvents();
+                })
+                .addOnFailureListener(e -> {
+                    loading.dismiss();
+                    UIUtils.showToast(this, "Failed to update status: " + e.getMessage());
+                });
     }
 }

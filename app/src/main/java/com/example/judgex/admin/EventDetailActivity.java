@@ -31,9 +31,13 @@ import com.google.android.material.textfield.TextInputLayout;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
+
+import com.google.firebase.firestore.DocumentSnapshot;
 
 public class EventDetailActivity extends AppCompatActivity {
 
@@ -148,11 +152,11 @@ public class EventDetailActivity extends AppCompatActivity {
         StringBuilder scheduleStr = new StringBuilder();
         if (currentEvent.getScheduledDate() > 0) {
             SimpleDateFormat sdf = new SimpleDateFormat("EEE, MMM dd, yyyy", Locale.US);
-            scheduleStr.append("📅 ").append(sdf.format(new Date(currentEvent.getScheduledDate())));
+            scheduleStr.append(sdf.format(new Date(currentEvent.getScheduledDate())));
         }
         if (currentEvent.getStartTime() != null && !currentEvent.getStartTime().isEmpty()) {
-            if (scheduleStr.length() > 0) scheduleStr.append("   ");
-            scheduleStr.append("⏰ ").append(currentEvent.getStartTime());
+            if (scheduleStr.length() > 0) scheduleStr.append(" • ");
+            scheduleStr.append(currentEvent.getStartTime());
             if (currentEvent.getEndTime() != null && !currentEvent.getEndTime().isEmpty()) {
                 scheduleStr.append(" – ").append(currentEvent.getEndTime());
             }
@@ -165,9 +169,9 @@ public class EventDetailActivity extends AppCompatActivity {
             tvEventSchedule.setVisibility(View.GONE);
         }
 
-        // Venue formatting: Independent dedicated line with location pin
+        // Venue formatting: Independent dedicated line
         if (currentEvent.getVenue() != null && !currentEvent.getVenue().trim().isEmpty()) {
-            tvEventVenue.setText("📍 " + currentEvent.getVenue().trim());
+            tvEventVenue.setText(currentEvent.getVenue().trim());
             tvEventVenue.setVisibility(View.VISIBLE);
         } else {
             tvEventVenue.setVisibility(View.GONE);
@@ -254,6 +258,42 @@ public class EventDetailActivity extends AppCompatActivity {
             warning = "\n\nWarning: When completed, results become permanent historical records.";
         }
 
+        final String finalWarning = warning;
+        if (Event.STATUS_COMPLETED.equalsIgnoreCase(newStatus) 
+                && com.example.judgex.utils.ScoringValidationUtils.isWeightedScoring(currentEvent)) {
+            Dialog checking = UIUtils.showLoadingDialog(this, "Validating criteria weights...");
+            firebaseManager.getCriteriaForEvent(currentEvent.getId())
+                    .addOnSuccessListener(querySnapshot -> {
+                        checking.dismiss();
+                        List<com.example.judgex.models.Criterion> list = new ArrayList<>();
+                        for (DocumentSnapshot doc : querySnapshot.getDocuments()) {
+                            com.example.judgex.models.Criterion c = doc.toObject(com.example.judgex.models.Criterion.class);
+                            if (c != null) list.add(c);
+                        }
+                        if (!com.example.judgex.utils.ScoringValidationUtils.isTotalWeightValid(list)) {
+                            double total = com.example.judgex.utils.ScoringValidationUtils.calculateTotalWeight(list);
+                            new AlertDialog.Builder(this)
+                                    .setTitle("Result Publishing Blocked")
+                                    .setMessage("Cannot mark event as COMPLETED or publish final results: Evaluation criteria weights total " 
+                                            + com.example.judgex.utils.ScoringValidationUtils.formatWeight(total) 
+                                            + ", but must total exactly 100%.\n\nPlease balance the criteria weights in Criteria Management to 100% before publishing results.")
+                                    .setPositiveButton("OK", null)
+                                    .show();
+                            return;
+                        }
+                        executeStatusChange(newStatus, finalWarning);
+                    })
+                    .addOnFailureListener(e -> {
+                        checking.dismiss();
+                        UIUtils.showToast(this, "Failed to verify criteria weights: " + e.getMessage());
+                    });
+            return;
+        }
+
+        executeStatusChange(newStatus, finalWarning);
+    }
+
+    private void executeStatusChange(String newStatus, String warning) {
         UIUtils.showConfirmationDialog(this, "Update Lifecycle",
                 "Set status of '" + currentEvent.getName() + "' to " + newStatus + "?" + warning,
                 "Update", () -> {

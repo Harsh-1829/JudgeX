@@ -19,6 +19,7 @@ import com.example.judgex.data.FirebaseManager;
 import com.example.judgex.models.Criterion;
 import com.example.judgex.models.Event;
 import com.example.judgex.utils.Constants;
+import com.example.judgex.utils.ScoringValidationUtils;
 import com.example.judgex.utils.UIUtils;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton;
@@ -28,13 +29,15 @@ import com.google.firebase.firestore.DocumentSnapshot;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class CriteriaManagerActivity extends AppCompatActivity implements CriteriaAdapter.OnCriterionClickListener {
 
     private MaterialToolbar toolbar;
     private SwipeRefreshLayout swipeRefreshLayout;
     private RecyclerView recyclerViewCriteria;
-    private TextView tvEmptyState, tvTotalMaxMarks;
+    private TextView tvEmptyState, tvTotalMaxMarks, tvWeightWarning;
+    private View layoutWeightWarning;
     private ExtendedFloatingActionButton fabAddCriterion;
 
     private final FirebaseManager firebaseManager = FirebaseManager.getInstance();
@@ -64,6 +67,8 @@ public class CriteriaManagerActivity extends AppCompatActivity implements Criter
         recyclerViewCriteria = findViewById(R.id.recyclerViewCriteria);
         tvEmptyState = findViewById(R.id.tvEmptyState);
         tvTotalMaxMarks = findViewById(R.id.tvTotalMaxMarks);
+        layoutWeightWarning = findViewById(R.id.layoutWeightWarning);
+        tvWeightWarning = findViewById(R.id.tvWeightWarning);
         fabAddCriterion = findViewById(R.id.fabAddCriterion);
 
         if (currentEvent != null) {
@@ -90,14 +95,12 @@ public class CriteriaManagerActivity extends AppCompatActivity implements Criter
         firebaseManager.getCriteriaForEvent(eventId)
                 .addOnSuccessListener(querySnapshot -> {
                     criteriaList.clear();
-                    double totalWeight = 0.0;
                     double totalMaxMarks = 0.0;
                     for (DocumentSnapshot doc : querySnapshot.getDocuments()) {
                         Criterion criterion = doc.toObject(Criterion.class);
                         if (criterion != null) {
                             criterion.setId(doc.getId());
                             criteriaList.add(criterion);
-                            totalWeight += criterion.getWeight();
                             totalMaxMarks += criterion.getMaxMarks();
                         }
                     }
@@ -105,8 +108,33 @@ public class CriteriaManagerActivity extends AppCompatActivity implements Criter
                     // Enforce display ordering by orderIndex
                     java.util.Collections.sort(criteriaList, (c1, c2) -> Integer.compare(c1.getOrderIndex(), c2.getOrderIndex()));
 
-                    tvTotalMaxMarks.setText(String.format("Total: %.0f pts | Weight: %.0f%% (%d criteria)", 
-                            totalMaxMarks, totalWeight, criteriaList.size()));
+                    double totalWeight = ScoringValidationUtils.calculateTotalWeight(criteriaList);
+                    boolean isWeighted = ScoringValidationUtils.isWeightedScoring(currentEvent);
+                    boolean isBalanced = !isWeighted || ScoringValidationUtils.isWeightValid(totalWeight);
+                    String weightFormatted = ScoringValidationUtils.formatWeight(totalWeight);
+
+                    if (isBalanced) {
+                        tvTotalMaxMarks.setText(String.format(Locale.US, "Total: %.0f pts | Weight: %s (%d criteria)", 
+                                totalMaxMarks, weightFormatted, criteriaList.size()));
+                        tvTotalMaxMarks.setBackgroundResource(R.drawable.bg_badge_success);
+                        tvTotalMaxMarks.setTextColor(getResources().getColor(R.color.success));
+                        if (layoutWeightWarning != null) {
+                            layoutWeightWarning.setVisibility(View.GONE);
+                        }
+                    } else {
+                        tvTotalMaxMarks.setText(String.format(Locale.US, "Weight: %s (Must be 100%%)", weightFormatted));
+                        tvTotalMaxMarks.setBackgroundResource(R.drawable.bg_badge_locked);
+                        tvTotalMaxMarks.setTextColor(getResources().getColor(R.color.danger));
+                        if (layoutWeightWarning != null) {
+                            layoutWeightWarning.setVisibility(View.VISIBLE);
+                        }
+                        if (tvWeightWarning != null) {
+                            tvWeightWarning.setText(String.format(Locale.US,
+                                    "Warning: Criteria weights total %s, but must total exactly 100%%. " +
+                                    "Scoring submissions and final result publishing are blocked until weights total 100%%.",
+                                    weightFormatted));
+                        }
+                    }
 
                     if (criteriaList.isEmpty()) {
                         tvEmptyState.setVisibility(View.VISIBLE);
@@ -201,6 +229,15 @@ public class CriteriaManagerActivity extends AppCompatActivity implements Criter
     private void saveCriterion(Criterion existingCriterion, String name, String description, double maxMarks, double weight) {
         Dialog loadingDialog = UIUtils.showLoadingDialog(this, existingCriterion != null ? "Updating criterion..." : "Adding criterion...");
 
+        // Calculate projected total weight across all criteria for this event
+        double otherWeights = 0.0;
+        for (Criterion c : criteriaList) {
+            if (existingCriterion == null || (c.getId() != null && !c.getId().equals(existingCriterion.getId()))) {
+                otherWeights += c.getWeight();
+            }
+        }
+        final double projectedTotalWeight = otherWeights + weight;
+
         if (existingCriterion != null) {
             existingCriterion.setName(name);
             existingCriterion.setDescription(description);
@@ -210,7 +247,7 @@ public class CriteriaManagerActivity extends AppCompatActivity implements Criter
             firebaseManager.updateCriterion(existingCriterion)
                     .addOnSuccessListener(aVoid -> {
                         loadingDialog.dismiss();
-                        UIUtils.showToast(this, "Criterion updated successfully");
+                        handleSaveSuccess(existingCriterion != null, projectedTotalWeight);
                         loadCriteria();
                     })
                     .addOnFailureListener(e -> {
@@ -222,13 +259,33 @@ public class CriteriaManagerActivity extends AppCompatActivity implements Criter
             firebaseManager.createCriterion(newCriterion)
                     .addOnSuccessListener(docRef -> {
                         loadingDialog.dismiss();
-                        UIUtils.showToast(this, "Criterion added: " + name);
+                        handleSaveSuccess(false, projectedTotalWeight);
                         loadCriteria();
                     })
                     .addOnFailureListener(e -> {
                         loadingDialog.dismiss();
                         UIUtils.showToast(this, "Failed to add criterion: " + e.getMessage());
                     });
+        }
+    }
+
+    private void handleSaveSuccess(boolean isEdit, double totalWeight) {
+        boolean isWeighted = ScoringValidationUtils.isWeightedScoring(currentEvent);
+        boolean isBalanced = !isWeighted || ScoringValidationUtils.isWeightValid(totalWeight);
+        String weightFormatted = ScoringValidationUtils.formatWeight(totalWeight);
+
+        if (!isBalanced) {
+            String warningMsg = String.format(Locale.US,
+                    "Criterion saved. Warning: Total criteria weight is now %s. Weights must total exactly 100%% before scoring submissions or result publishing is permitted.",
+                    weightFormatted);
+            UIUtils.showToast(this, warningMsg);
+            new AlertDialog.Builder(this)
+                    .setTitle("Criteria Weight Warning")
+                    .setMessage(warningMsg)
+                    .setPositiveButton("OK", null)
+                    .show();
+        } else {
+            UIUtils.showToast(this, (isEdit ? "Criterion updated" : "Criterion added") + " successfully (Weights total 100%).");
         }
     }
 
@@ -239,7 +296,7 @@ public class CriteriaManagerActivity extends AppCompatActivity implements Criter
                     checking.dismiss();
                     boolean hasEvaluations = !evalSnapshots.isEmpty();
                     String warning = hasEvaluations 
-                            ? "⚠️ WARNING: Evaluations have already been submitted for this event! Deleting this criterion will alter historical scores and rankings.\n\nAre you sure you want to proceed?" 
+                            ? "WARNING: Evaluations have already been submitted for this event! Deleting this criterion will alter historical scores and rankings.\n\nAre you sure you want to proceed?" 
                             : "Are you sure you want to delete '" + criterion.getName() + "'?";
 
                     UIUtils.showConfirmationDialog(this, "Delete Criterion", warning, "Delete", () -> {

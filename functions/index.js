@@ -89,3 +89,83 @@ exports.resetJudgePassword = functions.https.onCall(async (data, context) => {
         );
     }
 });
+
+/**
+ * Privileged Callable Cloud Function: deleteUserAccount
+ *
+ * Allows a verified Administrator to delete a User account (Judge or Team Leader)
+ * from Firebase Authentication using the Firebase Admin SDK.
+ *
+ * Security & Integrity:
+ * - Server-side authentication: Automatically verifies caller's Firebase Auth token (context.auth).
+ * - Server-side authorization: Checks caller record in Firestore `users/{uid}` to ensure `role === 'ADMIN'`.
+ * - Safety validation: Prevents an administrator from deleting their own account or missing targetUid.
+ * - Idempotency: If the account is already deleted or not found (auth/user-not-found), returns success.
+ */
+exports.deleteUserAccount = functions.https.onCall(async (data, context) => {
+    // 1. Verify caller authentication
+    if (!context.auth || !context.auth.uid) {
+        throw new functions.https.HttpsError(
+            "unauthenticated",
+            "Authentication required: Caller must be signed in to execute this operation."
+        );
+    }
+
+    const callerUid = context.auth.uid;
+
+    // 2. Verify caller possesses the ADMIN role in Firestore
+    const callerDoc = await admin.firestore().collection("users").doc(callerUid).get();
+    if (!callerDoc.exists) {
+        throw new functions.https.HttpsError(
+            "permission-denied",
+            "Access denied: Caller profile record does not exist."
+        );
+    }
+
+    const callerData = callerDoc.data() || {};
+    const role = (callerData.role || "").toUpperCase();
+    if (role !== "ADMIN") {
+        throw new functions.https.HttpsError(
+            "permission-denied",
+            "Access denied: Only administrators are authorized to delete user accounts."
+        );
+    }
+
+    // 3. Validate input parameters
+    const targetUid = data.targetUid;
+    if (!targetUid || typeof targetUid !== "string" || targetUid.trim().length === 0) {
+        throw new functions.https.HttpsError(
+            "invalid-argument",
+            "Missing or invalid parameter: 'targetUid' is required."
+        );
+    }
+
+    if (targetUid.trim() === callerUid) {
+        throw new functions.https.HttpsError(
+            "failed-precondition",
+            "Safety restriction: An administrator cannot delete their own account."
+        );
+    }
+
+    try {
+        // 4. Delete the user from Firebase Authentication
+        await admin.auth().deleteUser(targetUid.trim());
+        return {
+            success: true,
+            message: "User account successfully deleted from Firebase Authentication."
+        };
+    } catch (error) {
+        console.error("Failed to delete user in Firebase Auth:", error.code || error.message);
+        if (error.code === "auth/user-not-found") {
+            return {
+                success: true,
+                message: "User already removed or not found in Firebase Authentication."
+            };
+        }
+        throw new functions.https.HttpsError(
+            "internal",
+            error.message || "Failed to delete user in Firebase Authentication."
+        );
+    }
+});
+

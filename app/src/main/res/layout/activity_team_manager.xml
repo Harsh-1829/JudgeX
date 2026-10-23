@@ -57,16 +57,37 @@
 
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
-    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-        android:id="@+id/fabAddTeam"
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
-        android:layout_margin="20dp"
-        android:backgroundTint="@color/accent"
-        android:text="Add Team"
-        android:textColor="@color/white"
-        app:icon="@android:drawable/ic_input_add"
-        app:iconTint="@color/white" />
+        android:layout_margin="16dp"
+        android:gravity="center_vertical|end"
+        android:orientation="horizontal">
+
+        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+            android:id="@+id/btnUploadCsv"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="10dp"
+            android:backgroundTint="@color/surface"
+            android:text="Upload CSV"
+            android:textColor="@color/accent"
+            app:strokeColor="@color/accent"
+            app:strokeWidth="1.5dp"
+            app:elevation="4dp" />
+
+        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+            android:id="@+id/fabAddTeam"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:backgroundTint="@color/accent"
+            android:text="Add Team"
+            android:textColor="@color/white"
+            app:icon="@android:drawable/ic_input_add"
+            app:iconTint="@color/white"
+            app:elevation="4dp" />
+
+    </LinearLayout>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

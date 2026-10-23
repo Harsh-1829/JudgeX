@@ -128,9 +128,17 @@ public class ResultsRankingActivity extends AppCompatActivity implements Ranking
     private void updateHeaderUI() {
         if (currentEvent != null) {
             boolean isFinal = currentEvent.isLocked() || currentEvent.isCompleted();
-            toolbar.setSubtitle(currentEvent.getName() + (isFinal ? " (Official Final Results)" : " (Provisional Standings)"));
+            boolean isWeighted = com.example.judgex.utils.ScoringValidationUtils.isWeightedScoring(currentEvent);
+            boolean isValidWeight = !isWeighted || com.example.judgex.utils.ScoringValidationUtils.isTotalWeightValid(criteriaList);
+
+            if (!isValidWeight && !criteriaList.isEmpty()) {
+                double total = com.example.judgex.utils.ScoringValidationUtils.calculateTotalWeight(criteriaList);
+                toolbar.setSubtitle(currentEvent.getName() + " (Invalid Weights: " + com.example.judgex.utils.ScoringValidationUtils.formatWeight(total) + " - Publishing Blocked)");
+            } else {
+                toolbar.setSubtitle(currentEvent.getName() + (isFinal ? " (Official Final Results)" : " (Provisional Standings)"));
+            }
             if (adapter != null) {
-                adapter.setEventCompletedOrLocked(isFinal);
+                adapter.setEventCompletedOrLocked(isFinal && isValidWeight);
                 adapter.setAnonymousJudging(currentEvent.isAnonymousJudging());
             }
         } else {
@@ -178,6 +186,7 @@ public class ResultsRankingActivity extends AppCompatActivity implements Ranking
                             criteriaList.add(c);
                         }
                     }
+                    updateHeaderUI();
                     loadPanels();
                 })
                 .addOnFailureListener(e -> loadPanels());
@@ -387,13 +396,26 @@ public class ResultsRankingActivity extends AppCompatActivity implements Ranking
             return;
         }
 
+        if (com.example.judgex.utils.ScoringValidationUtils.isWeightedScoring(currentEvent)
+                && !com.example.judgex.utils.ScoringValidationUtils.isTotalWeightValid(criteriaList)) {
+            double totalWeight = com.example.judgex.utils.ScoringValidationUtils.calculateTotalWeight(criteriaList);
+            new AlertDialog.Builder(this)
+                    .setTitle("Publishing Blocked")
+                    .setMessage("Cannot share or publish standings: Event evaluation criteria weights total " 
+                            + com.example.judgex.utils.ScoringValidationUtils.formatWeight(totalWeight) 
+                            + ", but must total exactly 100%.\n\nPlease balance criteria weights in Criteria Management to 100% before publishing standings.")
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+
         boolean isFinal = currentEvent != null && (currentEvent.isLocked() || currentEvent.isCompleted());
         boolean isAnonymous = currentEvent != null && currentEvent.isAnonymousJudging();
         String scoringModel = currentEvent != null && Event.SCORING_RAW.equalsIgnoreCase(currentEvent.getScoringType())
                 ? "Raw Score Total" : "Weighted Formula (%)";
 
         StringBuilder sb = new StringBuilder();
-        sb.append("🏆 JudgeX Standings & Leaderboard\n");
+        sb.append("JudgeX Standings & Leaderboard\n");
         if (currentEvent != null) {
             sb.append("Event: ").append(currentEvent.getName()).append("\n");
             sb.append("Status: ").append(isFinal ? "FINAL (Official)" : "PROVISIONAL").append("\n");

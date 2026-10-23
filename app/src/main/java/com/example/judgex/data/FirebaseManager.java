@@ -12,6 +12,7 @@ import com.example.judgex.models.Team;
 import com.example.judgex.models.User;
 import com.example.judgex.utils.Constants;
 import com.example.judgex.utils.CryptoUtils;
+import com.example.judgex.utils.ScoringValidationUtils;
 import com.google.android.gms.tasks.Task;
 import com.google.android.gms.tasks.TaskCompletionSource;
 import com.google.android.gms.tasks.Tasks;
@@ -802,8 +803,69 @@ public class FirebaseManager {
     }
 
     public Task<Void> deleteEvent(String eventId) {
-        return db.collection(Constants.COLLECTION_EVENTS).document(eventId).delete();
+        if (eventId == null || eventId.trim().isEmpty()) {
+            return Tasks.forException(new IllegalArgumentException("Event ID cannot be empty."));
+        }
+        return db.collection(Constants.COLLECTION_EVENTS).document(eventId.trim()).delete();
     }
+
+    /**
+     * Cascading event deletion: atomically deletes dependent panels, criteria, teams,
+     * and optionally evaluations along with the event document.
+     */
+    public Task<Void> cascadeDeleteEvent(String eventId, boolean deleteEvaluations) {
+        if (eventId == null || eventId.trim().isEmpty()) {
+            return Tasks.forException(new IllegalArgumentException("Event ID cannot be empty."));
+        }
+        final String cleanEventId = eventId.trim();
+        TaskCompletionSource<Void> tcs = new TaskCompletionSource<>();
+
+        Task<QuerySnapshot> panelsTask = db.collection(Constants.COLLECTION_PANELS).whereEqualTo("eventId", cleanEventId).get();
+        Task<QuerySnapshot> criteriaTask = db.collection(Constants.COLLECTION_CRITERIA).whereEqualTo("eventId", cleanEventId).get();
+        Task<QuerySnapshot> teamsTask = db.collection(Constants.COLLECTION_TEAMS).whereEqualTo("eventId", cleanEventId).get();
+        Task<QuerySnapshot> evalsTask = db.collection(Constants.COLLECTION_EVALUATIONS).whereEqualTo("eventId", cleanEventId).get();
+
+        Tasks.whenAllSuccess(panelsTask, criteriaTask, teamsTask, evalsTask)
+                .addOnSuccessListener(results -> {
+                    QuerySnapshot panelsSnap = (QuerySnapshot) results.get(0);
+                    QuerySnapshot criteriaSnap = (QuerySnapshot) results.get(1);
+                    QuerySnapshot teamsSnap = (QuerySnapshot) results.get(2);
+                    QuerySnapshot evalsSnap = (QuerySnapshot) results.get(3);
+
+                    WriteBatch batch = db.batch();
+
+                    if (panelsSnap != null) {
+                        for (DocumentSnapshot doc : panelsSnap.getDocuments()) {
+                            batch.delete(doc.getReference());
+                        }
+                    }
+                    if (criteriaSnap != null) {
+                        for (DocumentSnapshot doc : criteriaSnap.getDocuments()) {
+                            batch.delete(doc.getReference());
+                        }
+                    }
+                    if (teamsSnap != null) {
+                        for (DocumentSnapshot doc : teamsSnap.getDocuments()) {
+                            batch.delete(doc.getReference());
+                        }
+                    }
+                    if (deleteEvaluations && evalsSnap != null) {
+                        for (DocumentSnapshot doc : evalsSnap.getDocuments()) {
+                            batch.delete(doc.getReference());
+                        }
+                    }
+
+                    batch.delete(db.collection(Constants.COLLECTION_EVENTS).document(cleanEventId));
+
+                    batch.commit()
+                            .addOnSuccessListener(aVoid -> tcs.setResult(null))
+                            .addOnFailureListener(tcs::setException);
+                })
+                .addOnFailureListener(tcs::setException);
+
+        return tcs.getTask();
+    }
+
 
     // --- Panel Operations ---
 
@@ -830,6 +892,55 @@ public class FirebaseManager {
     public Task<DocumentSnapshot> getPanel(String panelId) {
         return db.collection(Constants.COLLECTION_PANELS).document(panelId).get();
     }
+
+    /**
+     * Atomically deletes a panel and safely unassigns any judges and teams mapped to it.
+     */
+    public Task<Void> deletePanel(Panel panel) {
+        if (panel == null || panel.getId() == null || panel.getId().trim().isEmpty()) {
+            return Tasks.forException(new IllegalArgumentException("Panel ID cannot be empty."));
+        }
+        final String panelId = panel.getId().trim();
+        TaskCompletionSource<Void> tcs = new TaskCompletionSource<>();
+
+        Task<QuerySnapshot> judgesTask = db.collection(Constants.COLLECTION_USERS)
+                .whereEqualTo("assignedPanelId", panelId)
+                .get();
+
+        Task<QuerySnapshot> teamsTask = db.collection(Constants.COLLECTION_TEAMS)
+                .whereEqualTo("panelId", panelId)
+                .get();
+
+        Tasks.whenAllSuccess(judgesTask, teamsTask)
+                .addOnSuccessListener(results -> {
+                    QuerySnapshot judgesSnap = (QuerySnapshot) results.get(0);
+                    QuerySnapshot teamsSnap = (QuerySnapshot) results.get(1);
+
+                    WriteBatch batch = db.batch();
+
+                    if (judgesSnap != null) {
+                        for (DocumentSnapshot jDoc : judgesSnap.getDocuments()) {
+                            batch.update(jDoc.getReference(), "assignedPanelId", "");
+                        }
+                    }
+
+                    if (teamsSnap != null) {
+                        for (DocumentSnapshot tDoc : teamsSnap.getDocuments()) {
+                            batch.update(tDoc.getReference(), "panelId", "");
+                        }
+                    }
+
+                    batch.delete(db.collection(Constants.COLLECTION_PANELS).document(panelId));
+
+                    batch.commit()
+                            .addOnSuccessListener(aVoid -> tcs.setResult(null))
+                            .addOnFailureListener(tcs::setException);
+                })
+                .addOnFailureListener(tcs::setException);
+
+        return tcs.getTask();
+    }
+
 
     // --- Judge Management Operations ---
 
@@ -1068,7 +1179,10 @@ public class FirebaseManager {
     }
 
     public Task<Void> deleteCriterion(String criterionId) {
-        return db.collection(Constants.COLLECTION_CRITERIA).document(criterionId).delete();
+        if (criterionId == null || criterionId.trim().isEmpty()) {
+            return Tasks.forException(new IllegalArgumentException("Criterion ID cannot be empty."));
+        }
+        return db.collection(Constants.COLLECTION_CRITERIA).document(criterionId.trim()).delete();
     }
 
     public Task<QuerySnapshot> getCriteriaForEvent(String eventId) {
@@ -1117,8 +1231,122 @@ public class FirebaseManager {
     }
 
     public Task<Void> deleteTeam(String teamId) {
-        return db.collection(Constants.COLLECTION_TEAMS).document(teamId).delete();
+        if (teamId == null || teamId.trim().isEmpty()) {
+            return Tasks.forException(new IllegalArgumentException("Team ID cannot be empty."));
+        }
+        Team dummy = new Team();
+        dummy.setId(teamId.trim());
+        return deleteTeam(dummy, false);
     }
+
+    /**
+     * Permanently deletes a team record, safely removes it from panel mappings,
+     * deletes associated team leader profiles, and optionally deletes evaluations.
+     */
+    public Task<Void> deleteTeam(Team team, boolean deleteEvaluations) {
+        if (team == null || team.getId() == null || team.getId().trim().isEmpty()) {
+            return Tasks.forException(new IllegalArgumentException("Team record is invalid."));
+        }
+        final String teamId = team.getId().trim();
+        final String panelId = team.getPanelId();
+        final String leaderUid = team.getLeaderUid();
+
+        TaskCompletionSource<Void> tcs = new TaskCompletionSource<>();
+
+        Task<QuerySnapshot> evalsTask = db.collection(Constants.COLLECTION_EVALUATIONS)
+                .whereEqualTo("teamId", teamId)
+                .get();
+
+        Task<QuerySnapshot> leaderUserTask = db.collection(Constants.COLLECTION_USERS)
+                .whereEqualTo("teamId", teamId)
+                .get();
+
+        Tasks.whenAllSuccess(evalsTask, leaderUserTask)
+                .addOnSuccessListener(results -> {
+                    QuerySnapshot evalSnap = (QuerySnapshot) results.get(0);
+                    QuerySnapshot leaderSnap = (QuerySnapshot) results.get(1);
+
+                    WriteBatch batch = db.batch();
+
+                    if (panelId != null && !panelId.trim().isEmpty()) {
+                        DocumentReference panelRef = db.collection(Constants.COLLECTION_PANELS).document(panelId.trim());
+                        batch.update(panelRef, "teamIds", FieldValue.arrayRemove(teamId));
+                    }
+
+                    if (deleteEvaluations && evalSnap != null) {
+                        for (DocumentSnapshot eDoc : evalSnap.getDocuments()) {
+                            batch.delete(eDoc.getReference());
+                        }
+                    }
+
+                    batch.delete(db.collection(Constants.COLLECTION_TEAMS).document(teamId));
+
+                    String authUidToDelete = leaderUid;
+                    if (leaderSnap != null && !leaderSnap.isEmpty()) {
+                        for (DocumentSnapshot uDoc : leaderSnap.getDocuments()) {
+                            if (authUidToDelete == null || authUidToDelete.isEmpty()) {
+                                authUidToDelete = uDoc.getId();
+                            }
+                            batch.delete(uDoc.getReference());
+                        }
+                    } else if (leaderUid != null && !leaderUid.trim().isEmpty()) {
+                        batch.delete(db.collection(Constants.COLLECTION_USERS).document(leaderUid.trim()));
+                    }
+
+                    final String finalAuthUid = authUidToDelete;
+
+                    batch.commit()
+                            .addOnSuccessListener(aVoid -> {
+                                if (finalAuthUid != null && !finalAuthUid.trim().isEmpty()) {
+                                    deleteUserAuthAccount(finalAuthUid)
+                                            .addOnCompleteListener(authTask -> tcs.setResult(null));
+                                } else {
+                                    tcs.setResult(null);
+                                }
+                            })
+                            .addOnFailureListener(tcs::setException);
+                })
+                .addOnFailureListener(tcs::setException);
+
+        return tcs.getTask();
+    }
+
+    /**
+     * Soft-deletes a team while unassigning it from its panel and deactivating the team leader account.
+     */
+    public Task<Void> softDeleteTeam(Team team) {
+        if (team == null || team.getId() == null || team.getId().trim().isEmpty()) {
+            return Tasks.forException(new IllegalArgumentException("Team record is invalid."));
+        }
+        final String teamId = team.getId().trim();
+        final String oldPanelId = team.getPanelId();
+
+        team.setDeleted(true);
+        team.setStatus(Team.STATUS_DELETED);
+        team.setPanelId("");
+
+        WriteBatch batch = db.batch();
+
+        if (oldPanelId != null && !oldPanelId.trim().isEmpty()) {
+            DocumentReference panelRef = db.collection(Constants.COLLECTION_PANELS).document(oldPanelId.trim());
+            batch.update(panelRef, "teamIds", FieldValue.arrayRemove(teamId));
+        }
+
+        DocumentReference teamRef = db.collection(Constants.COLLECTION_TEAMS).document(teamId);
+        batch.set(teamRef, team, SetOptions.merge());
+
+        if (team.getLeaderUid() != null && !team.getLeaderUid().trim().isEmpty()) {
+            DocumentReference leaderRef = db.collection(Constants.COLLECTION_USERS).document(team.getLeaderUid().trim());
+            Map<String, Object> leaderUpdates = new HashMap<>();
+            leaderUpdates.put("deleted", true);
+            leaderUpdates.put("status", User.STATUS_DELETED);
+            leaderUpdates.put("active", false);
+            batch.update(leaderRef, leaderUpdates);
+        }
+
+        return batch.commit();
+    }
+
 
     public Task<QuerySnapshot> getTeamForLeader(String leaderUid) {
         return db.collection(Constants.COLLECTION_TEAMS)
@@ -1142,6 +1370,10 @@ public class FirebaseManager {
      * Submits an evaluation atomically with duplicate checking.
      */
     public Task<Void> submitEvaluation(Evaluation evaluation) {
+        if (evaluation == null || evaluation.getEventId() == null || evaluation.getEventId().isEmpty()) {
+            return Tasks.forException(new IllegalArgumentException("Evaluation record or eventId is missing."));
+        }
+
         String evalId = Evaluation.generateEvaluationId(
                 evaluation.getEventId(), 
                 evaluation.getTeamId(), 
@@ -1150,19 +1382,49 @@ public class FirebaseManager {
         evaluation.setId(evalId);
 
         DocumentReference evalRef = db.collection(Constants.COLLECTION_EVALUATIONS).document(evalId);
-        
-        // Execute atomic transaction to prevent duplicates and race conditions
-        return db.runTransaction(transaction -> {
-            DocumentSnapshot snapshot = transaction.get(evalRef);
-            if (snapshot.exists()) {
-                Evaluation existing = snapshot.toObject(Evaluation.class);
-                if (existing != null && existing.isSubmitted()) {
-                    throw new IllegalStateException("An evaluation for this team by you has already been submitted and cannot be changed.");
-                }
-            }
-            transaction.set(evalRef, evaluation);
-            return null;
-        });
+        TaskCompletionSource<Void> tcs = new TaskCompletionSource<>();
+
+        // Validate event criteria weights before committing evaluation to Firestore
+        Tasks.whenAllSuccess(getEvent(evaluation.getEventId()), getCriteriaForEvent(evaluation.getEventId()))
+                .addOnSuccessListener(results -> {
+                    DocumentSnapshot eventDoc = (DocumentSnapshot) results.get(0);
+                    QuerySnapshot criteriaSnap = (QuerySnapshot) results.get(1);
+
+                    Event event = eventDoc != null && eventDoc.exists() ? eventDoc.toObject(Event.class) : null;
+                    if (ScoringValidationUtils.isWeightedScoring(event)) {
+                        List<Criterion> list = new ArrayList<>();
+                        if (criteriaSnap != null) {
+                            for (DocumentSnapshot doc : criteriaSnap.getDocuments()) {
+                                Criterion c = doc.toObject(Criterion.class);
+                                if (c != null) list.add(c);
+                            }
+                        }
+                        if (!ScoringValidationUtils.isTotalWeightValid(list)) {
+                            double total = ScoringValidationUtils.calculateTotalWeight(list);
+                            tcs.setException(new IllegalStateException(
+                                    "Cannot submit evaluation: Event criteria weights total " 
+                                    + ScoringValidationUtils.formatWeight(total) 
+                                    + ", but must total exactly 100%."));
+                            return;
+                        }
+                    }
+
+                    db.runTransaction(transaction -> {
+                        DocumentSnapshot snapshot = transaction.get(evalRef);
+                        if (snapshot.exists()) {
+                            Evaluation existing = snapshot.toObject(Evaluation.class);
+                            if (existing != null && existing.isSubmitted()) {
+                                throw new IllegalStateException("An evaluation for this team by you has already been submitted and cannot be changed.");
+                            }
+                        }
+                        transaction.set(evalRef, evaluation);
+                        return null;
+                    }).addOnSuccessListener(aVoid -> tcs.setResult(null))
+                      .addOnFailureListener(tcs::setException);
+                })
+                .addOnFailureListener(tcs::setException);
+
+        return tcs.getTask();
     }
 
     public Task<QuerySnapshot> getEvaluationsForTeam(String teamId) {
@@ -1304,6 +1566,37 @@ public class FirebaseManager {
                 .get();
     }
 
+    /**
+     * Privileged backend call: Deletes a user from Firebase Authentication via the deleteUserAccount Cloud Function.
+     */
+    public Task<String> deleteUserAuthAccount(String targetUid) {
+        TaskCompletionSource<String> tcs = new TaskCompletionSource<>();
+        if (targetUid == null || targetUid.trim().isEmpty()) {
+            tcs.setException(new IllegalArgumentException("User identifier (UID) is required."));
+            return tcs.getTask();
+        }
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("targetUid", targetUid.trim());
+
+        FirebaseFunctions.getInstance()
+                .getHttpsCallable("deleteUserAccount")
+                .call(data)
+                .addOnSuccessListener(httpsCallableResult -> {
+                    String message = "User account successfully deleted from Firebase Authentication.";
+                    if (httpsCallableResult != null && httpsCallableResult.getData() instanceof Map) {
+                        Map<?, ?> resMap = (Map<?, ?>) httpsCallableResult.getData();
+                        if (resMap.get("message") != null) {
+                            message = resMap.get("message").toString();
+                        }
+                    }
+                    tcs.setResult(message);
+                })
+                .addOnFailureListener(tcs::setException);
+
+        return tcs.getTask();
+    }
+
     public static class DeleteJudgeResult {
         public final String judgeUid;
         public final String judgeName;
@@ -1313,11 +1606,18 @@ public class FirebaseManager {
         public final int evaluationCount;
         public final boolean profileDeleted;
         public final boolean authRequiresBackend;
+        public final boolean authDeleted;
         public final String message;
 
         public DeleteJudgeResult(String judgeUid, String judgeName, String judgeEmail,
                                  boolean success, boolean evaluationsPreserved, int evaluationCount,
                                  boolean profileDeleted, boolean authRequiresBackend, String message) {
+            this(judgeUid, judgeName, judgeEmail, success, evaluationsPreserved, evaluationCount, profileDeleted, authRequiresBackend, false, message);
+        }
+
+        public DeleteJudgeResult(String judgeUid, String judgeName, String judgeEmail,
+                                 boolean success, boolean evaluationsPreserved, int evaluationCount,
+                                 boolean profileDeleted, boolean authRequiresBackend, boolean authDeleted, String message) {
             this.judgeUid = judgeUid;
             this.judgeName = judgeName;
             this.judgeEmail = judgeEmail;
@@ -1326,6 +1626,7 @@ public class FirebaseManager {
             this.evaluationCount = evaluationCount;
             this.profileDeleted = profileDeleted;
             this.authRequiresBackend = authRequiresBackend;
+            this.authDeleted = authDeleted;
             this.message = message;
         }
     }
@@ -1337,8 +1638,7 @@ public class FirebaseManager {
      *    - If evaluations exist: Preserves them for leaderboard auditability while tombstoning the user
      *      profile (status=DELETED, isActive=false) and clearing panel mappings.
      *    - If no evaluations exist (clean test judge): Permanently deletes the Firestore user document.
-     * 3. Explains clearly that client-side Android SDK cannot delete Firebase Authentication records
-     *    belonging to other users without a trusted backend service (Firebase Admin SDK / Cloud Function).
+     * 3. Deletes Firebase Authentication record via Cloud Function or notifies Admin if Cloud Function requires deployment.
      */
     public Task<DeleteJudgeResult> deleteJudgeAccount(User judge) {
         TaskCompletionSource<DeleteJudgeResult> tcs = new TaskCompletionSource<>();
@@ -1397,14 +1697,26 @@ public class FirebaseManager {
 
                                 batch.commit()
                                         .addOnSuccessListener(aVoid -> {
-                                            String outcomeMsg = hasEvaluations
-                                                    ? "Judge profile unassigned and removed from active lists. " + evalCount + " historical evaluation(s) preserved for competition scoring."
-                                                    : "Judge profile and panel assignments completely deleted.";
-                                            tcs.setResult(new DeleteJudgeResult(
-                                                    judgeUid, judgeName, judgeEmail,
-                                                    true, hasEvaluations, evalCount,
-                                                    !hasEvaluations, true, outcomeMsg
-                                            ));
+                                            deleteUserAuthAccount(judgeUid).addOnCompleteListener(authTask -> {
+                                                boolean authDeleted = authTask.isSuccessful();
+                                                boolean authRequiresBackend = !authDeleted;
+
+                                                String outcomeMsg = hasEvaluations
+                                                        ? "Judge profile unassigned and removed from active lists. " + evalCount + " historical evaluation(s) preserved for competition scoring."
+                                                        : "Judge profile and panel assignments completely deleted.";
+
+                                                if (authDeleted) {
+                                                    outcomeMsg += "\n\nFirebase Authentication account was also deleted.";
+                                                } else {
+                                                    outcomeMsg += "\n\nNote: To remove the login credential from Firebase Authentication without a deployed Cloud Function, delete the user in Firebase Console (Authentication > Users).";
+                                                }
+
+                                                tcs.setResult(new DeleteJudgeResult(
+                                                        judgeUid, judgeName, judgeEmail,
+                                                        true, hasEvaluations, evalCount,
+                                                        !hasEvaluations, authRequiresBackend, authDeleted, outcomeMsg
+                                                ));
+                                            });
                                         })
                                         .addOnFailureListener(tcs::setException);
                             })
@@ -1416,18 +1728,31 @@ public class FirebaseManager {
     }
 
     /**
-     * Batch deletes multiple judge accounts safely.
+     * Batch deletes multiple judge accounts safely and collects all results.
      */
     public Task<List<DeleteJudgeResult>> deleteJudgeAccounts(List<User> judges) {
         if (judges == null || judges.isEmpty()) {
             return Tasks.forResult(new ArrayList<DeleteJudgeResult>());
         }
 
+        TaskCompletionSource<List<DeleteJudgeResult>> tcs = new TaskCompletionSource<>();
+        List<DeleteJudgeResult> results = new ArrayList<>();
         List<Task<DeleteJudgeResult>> tasks = new ArrayList<>();
+
         for (User j : judges) {
             tasks.add(deleteJudgeAccount(j));
         }
 
-        return Tasks.whenAllSuccess(tasks);
+        Tasks.whenAllComplete(tasks).addOnCompleteListener(allTask -> {
+            for (Task<DeleteJudgeResult> t : tasks) {
+                if (t.isSuccessful() && t.getResult() != null) {
+                    results.add(t.getResult());
+                }
+            }
+            tcs.setResult(results);
+        });
+
+        return tcs.getTask();
     }
 }
+

@@ -76,16 +76,22 @@ public class EventAdapter extends RecyclerView.Adapter<EventAdapter.EventViewHol
         // Format schedule and venue line
         StringBuilder scheduleVenue = new StringBuilder();
         if (event.getScheduledDate() > 0) {
-            scheduleVenue.append("📅 ").append(dateFormat.format(new Date(event.getScheduledDate())));
+            scheduleVenue.append(dateFormat.format(new Date(event.getScheduledDate())));
         }
         if (event.getStartTime() != null && !event.getStartTime().isEmpty()) {
-            scheduleVenue.append(" • ").append(event.getStartTime());
+            if (scheduleVenue.length() > 0) {
+                scheduleVenue.append(" • ");
+            }
+            scheduleVenue.append(event.getStartTime());
             if (event.getEndTime() != null && !event.getEndTime().isEmpty()) {
                 scheduleVenue.append(" - ").append(event.getEndTime());
             }
         }
         if (event.getVenue() != null && !event.getVenue().isEmpty()) {
-            scheduleVenue.append(" • 📍 ").append(event.getVenue());
+            if (scheduleVenue.length() > 0) {
+                scheduleVenue.append(" • ");
+            }
+            scheduleVenue.append(event.getVenue());
         }
 
         if (scheduleVenue.length() > 0) {

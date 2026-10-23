@@ -43,8 +43,8 @@ public class PanelAdapter extends RecyclerView.Adapter<PanelAdapter.PanelViewHol
         int judgeCount = panel.getJudgeIds() != null ? panel.getJudgeIds().size() : 0;
         int teamCount = panel.getTeamIds() != null ? panel.getTeamIds().size() : 0;
 
-        holder.tvJudgeCount.setText("👥 " + judgeCount + " Judges");
-        holder.tvTeamCount.setText("📁 " + teamCount + " Teams");
+        holder.tvJudgeCount.setText(judgeCount + " Judges");
+        holder.tvTeamCount.setText(teamCount + " Teams");
 
         holder.itemView.setOnClickListener(v -> {
             if (listener != null) listener.onPanelClick(panel);

@@ -58,7 +58,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="👥 2 Judges Assigned"
+                android:text="2 Judges Assigned"
                 android:textColor="@color/text_secondary"
                 android:textSize="13sp" />
 
@@ -66,7 +66,7 @@
                 android:id="@+id/tvTeamCount"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="📁 5 Teams Assigned"
+                android:text="5 Teams Assigned"
                 android:textColor="@color/text_secondary"
                 android:textSize="13sp" />
 

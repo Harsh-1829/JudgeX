@@ -17,7 +17,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="14dp"
-            android:text="👤 Full Name: "
+            android:text="Full Name: "
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 
@@ -26,7 +26,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="14dp"
-            android:text="🔑 Login Username: "
+            android:text="Login Username: "
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 
@@ -41,7 +41,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="🔒 Login Password: "
+                android:text="Login Password: "
                 android:textColor="@color/text_primary"
                 android:textSize="15sp" />
 
@@ -73,7 +73,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="14dp"
-            android:text="📧 Email: "
+            android:text="Email: "
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 
@@ -82,7 +82,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="14dp"
-            android:text="🏛️ Organization: "
+            android:text="Organization: "
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 
@@ -91,7 +91,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="14dp"
-            android:text="⚖️ Panel (This Event): "
+            android:text="Panel (This Event): "
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 
@@ -100,7 +100,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="14dp"
-            android:text="📋 Total Event Assignments: "
+            android:text="Total Event Assignments: "
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 
@@ -109,7 +109,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="14dp"
-            android:text="🟢 Status: "
+            android:text="Status: "
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 
@@ -118,7 +118,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="6dp"
-            android:text="🔒 Authentication: Managed via Firebase Auth (passwords are encrypted and never stored in plain text)."
+            android:text="Authentication: Managed via Firebase Auth (passwords are encrypted and never stored in plain text)."
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 

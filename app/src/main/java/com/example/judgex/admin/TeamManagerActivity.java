@@ -13,6 +13,9 @@ import android.widget.TextView;
 
 import com.example.judgex.utils.CryptoUtils;
 
+import android.net.Uri;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -27,6 +30,9 @@ import com.example.judgex.models.Panel;
 import com.example.judgex.models.Team;
 import com.example.judgex.qr.QRViewActivity;
 import com.example.judgex.utils.Constants;
+import com.example.judgex.utils.CsvTeamParser;
+import com.example.judgex.utils.CsvTeamParser.CsvRow;
+import com.example.judgex.utils.CsvTeamParser.ParseResult;
 import com.example.judgex.utils.UIUtils;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
@@ -38,6 +44,10 @@ import com.google.firebase.firestore.DocumentSnapshot;
 
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -54,6 +64,12 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
     private RecyclerView recyclerViewTeams;
     private TextView tvEmptyState;
     private ExtendedFloatingActionButton fabAddTeam;
+    private ExtendedFloatingActionButton btnUploadCsv;
+
+    private ActivityResultLauncher<String> csvFilePickerLauncher;
+    private TextInputEditText currentCsvEditText;
+    private TextView currentCsvFileNameView;
+    private AlertDialog currentImportDialog;
 
     private final FirebaseManager firebaseManager = FirebaseManager.getInstance();
     private final List<Team> teamList = new ArrayList<>();
@@ -67,6 +83,15 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_team_manager);
+
+        csvFilePickerLauncher = registerForActivityResult(
+                new ActivityResultContracts.GetContent(),
+                uri -> {
+                    if (uri != null) {
+                        handleCsvUriSelected(uri);
+                    }
+                }
+        );
 
         currentEvent = (Event) getIntent().getSerializableExtra(Constants.EXTRA_EVENT);
         eventId = getIntent().getStringExtra(Constants.EXTRA_EVENT_ID);
@@ -84,6 +109,7 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
         recyclerViewTeams = findViewById(R.id.recyclerViewTeams);
         tvEmptyState = findViewById(R.id.tvEmptyState);
         fabAddTeam = findViewById(R.id.fabAddTeam);
+        btnUploadCsv = findViewById(R.id.btnUploadCsv);
 
         if (currentEvent != null) {
             toolbar.setSubtitle(currentEvent.getName());
@@ -92,7 +118,10 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
         toolbar.setNavigationOnClickListener(v -> finish());
         toolbar.inflateMenu(R.menu.menu_team_manager);
         toolbar.setOnMenuItemClickListener(item -> {
-            if (item.getItemId() == R.id.action_random_assign_teams) {
+            if (item.getItemId() == R.id.action_import_csv) {
+                showImportCsvDialog();
+                return true;
+            } else if (item.getItemId() == R.id.action_random_assign_teams) {
                 handleRandomTeamAssignment();
                 return true;
             }
@@ -105,6 +134,15 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
 
         swipeRefreshLayout.setOnRefreshListener(this::loadPanelsAndTeams);
         fabAddTeam.setOnClickListener(v -> showAddEditTeamDialog(null));
+        if (btnUploadCsv != null) {
+            btnUploadCsv.setOnClickListener(v -> {
+                try {
+                    csvFilePickerLauncher.launch("*/*");
+                } catch (Exception e) {
+                    UIUtils.showToast(this, "Could not open file picker: " + e.getMessage());
+                }
+            });
+        }
     }
 
     private void loadPanelsAndTeams() {
@@ -407,7 +445,351 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
         dialog.show();
     }
 
+    public static class TeamCredential {
+        public final String teamName;
+        public final String leaderName;
+        public final String username;
+        public final String temporaryPassword;
+
+        public TeamCredential(String teamName, String leaderName, String username, String temporaryPassword) {
+            this.teamName = teamName;
+            this.leaderName = leaderName;
+            this.username = username;
+            this.temporaryPassword = temporaryPassword;
+        }
+    }
+
+    public static class FailedRow {
+        public final CsvRow row;
+        public final String reason;
+
+        public FailedRow(CsvRow row, String reason) {
+            this.row = row;
+            this.reason = reason;
+        }
+    }
+
+    private void showImportCsvDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        View view = LayoutInflater.from(this).inflate(R.layout.dialog_import_teams_csv, null);
+
+        MaterialButton btnSelectCsvFile = view.findViewById(R.id.btnSelectCsvFile);
+        currentCsvFileNameView = view.findViewById(R.id.tvSelectedFileName);
+        currentCsvEditText = view.findViewById(R.id.etCsvContent);
+        MaterialButton btnCancelImport = view.findViewById(R.id.btnCancelImport);
+        MaterialButton btnPreviewCsv = view.findViewById(R.id.btnPreviewCsv);
+
+        currentImportDialog = builder.setView(view).create();
+
+        btnSelectCsvFile.setOnClickListener(v -> {
+            try {
+                csvFilePickerLauncher.launch("*/*");
+            } catch (Exception e) {
+                UIUtils.showToast(this, "Could not open file picker: " + e.getMessage());
+            }
+        });
+
+        btnCancelImport.setOnClickListener(v -> currentImportDialog.dismiss());
+
+        btnPreviewCsv.setOnClickListener(v -> {
+            String content = currentCsvEditText.getText() != null ? currentCsvEditText.getText().toString().trim() : "";
+            if (TextUtils.isEmpty(content)) {
+                UIUtils.showToast(this, "Please select a CSV file or paste CSV content.");
+                return;
+            }
+            parseAndShowCsvPreview(content, currentImportDialog);
+        });
+
+        currentImportDialog.show();
+    }
+
+    private void handleCsvUriSelected(Uri uri) {
+        try {
+            InputStream is = getContentResolver().openInputStream(uri);
+            if (is == null) {
+                UIUtils.showToast(this, "Failed to read selected file.");
+                return;
+            }
+            BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line).append("\n");
+            }
+            reader.close();
+            is.close();
+
+            String csvContent = sb.toString();
+            if (currentCsvEditText != null) {
+                currentCsvEditText.setText(csvContent);
+            }
+            if (currentCsvFileNameView != null) {
+                currentCsvFileNameView.setText("Selected file: " + uri.getLastPathSegment());
+                currentCsvFileNameView.setVisibility(View.VISIBLE);
+            }
+
+            parseAndShowCsvPreview(csvContent, currentImportDialog);
+        } catch (Exception e) {
+            UIUtils.showToast(this, "Error reading CSV: " + e.getMessage());
+        }
+    }
+
+    private void parseAndShowCsvPreview(String csvContent, AlertDialog parentDialog) {
+        ParseResult result = CsvTeamParser.parse(csvContent, teamList);
+
+        if (result.totalRows == 0) {
+            UIUtils.showToast(this, "No valid team rows found in CSV. Please verify format.");
+            return;
+        }
+
+        if (parentDialog != null && parentDialog.isShowing()) {
+            parentDialog.dismiss();
+        }
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        View view = LayoutInflater.from(this).inflate(R.layout.dialog_csv_preview, null);
+
+        TextView tvPreviewSummary = view.findViewById(R.id.tvPreviewSummary);
+        View cardValidationErrors = view.findViewById(R.id.cardValidationErrors);
+        TextView tvErrorsList = view.findViewById(R.id.tvErrorsList);
+        View cardValidTeams = view.findViewById(R.id.cardValidTeams);
+        TextView tvValidList = view.findViewById(R.id.tvValidList);
+        MaterialButton btnCancelPreview = view.findViewById(R.id.btnCancelPreview);
+        MaterialButton btnConfirmImport = view.findViewById(R.id.btnConfirmImport);
+
+        tvPreviewSummary.setText("Total Rows: " + result.totalRows
+                + " | Valid Teams: " + result.validRows.size()
+                + " | Errors: " + result.errorRows.size());
+
+        if (result.hasErrors()) {
+            cardValidationErrors.setVisibility(View.VISIBLE);
+            StringBuilder sbErrors = new StringBuilder();
+            for (CsvRow errRow : result.errorRows) {
+                for (String err : errRow.errors) {
+                    sbErrors.append("• ").append(err).append("\n");
+                }
+            }
+            tvErrorsList.setText(sbErrors.toString().trim());
+        } else {
+            cardValidationErrors.setVisibility(View.GONE);
+        }
+
+        if (!result.validRows.isEmpty()) {
+            cardValidTeams.setVisibility(View.VISIBLE);
+            StringBuilder sbValid = new StringBuilder();
+            for (CsvRow vRow : result.validRows) {
+                sbValid.append("• Row ").append(vRow.rowNumber).append(": ")
+                        .append(vRow.teamName)
+                        .append("  (Leader: ").append(vRow.leaderName).append(")\n");
+            }
+            tvValidList.setText(sbValid.toString().trim());
+            btnConfirmImport.setEnabled(true);
+            btnConfirmImport.setText("Import " + result.validRows.size() + " Team" + (result.validRows.size() == 1 ? "" : "s"));
+        } else {
+            cardValidTeams.setVisibility(View.GONE);
+            btnConfirmImport.setEnabled(false);
+            btnConfirmImport.setText("No Valid Teams to Import");
+        }
+
+        AlertDialog previewDialog = builder.setView(view).create();
+
+        btnCancelPreview.setOnClickListener(v -> previewDialog.dismiss());
+
+        btnConfirmImport.setOnClickListener(v -> {
+            previewDialog.dismiss();
+            startCsvBatchImport(result.validRows);
+        });
+
+        previewDialog.show();
+    }
+
+    private void startCsvBatchImport(List<CsvRow> validRows) {
+        if (validRows == null || validRows.isEmpty()) return;
+
+        Dialog progressDialog = UIUtils.showLoadingDialog(this, "Importing teams (0/" + validRows.size() + ")...");
+        List<TeamCredential> createdCredentials = new ArrayList<>();
+        List<FailedRow> failedRows = new ArrayList<>();
+        Set<String> allocatedTeamNumbers = new HashSet<>();
+
+        processNextCsvRow(validRows, 0, progressDialog, createdCredentials, failedRows, allocatedTeamNumbers);
+    }
+
+    private void processNextCsvRow(List<CsvRow> rows, int index, Dialog progressDialog,
+                                  List<TeamCredential> createdCredentials,
+                                  List<FailedRow> failedRows,
+                                  Set<String> allocatedTeamNumbers) {
+        if (index >= rows.size()) {
+            if (progressDialog != null && progressDialog.isShowing()) {
+                progressDialog.dismiss();
+            }
+            loadPanelsAndTeams();
+            showCsvImportResultsDialog(rows, createdCredentials, failedRows);
+            return;
+        }
+
+        CsvRow row = rows.get(index);
+        if (progressDialog != null && progressDialog.isShowing()) {
+            TextView tv = progressDialog.findViewById(R.id.tvLoadingMessage);
+            if (tv != null) {
+                tv.setText("Importing team " + (index + 1) + " of " + rows.size() + ":\n" + row.teamName);
+            }
+        }
+
+        // Idempotency: Re-verify duplicate against current teamList and newly created teams in this batch
+        if (isDuplicateTeam(teamList, row.teamName, row.leaderName)) {
+            failedRows.add(new FailedRow(row, "Team already exists in event (skipped)"));
+            processNextCsvRow(rows, index + 1, progressDialog, createdCredentials, failedRows, allocatedTeamNumbers);
+            return;
+        }
+
+        firebaseManager.generateUniqueTeamUsername(row.teamName)
+                .addOnSuccessListener(username -> {
+                    String tempPassword = FirebaseManager.generateSecureTemporaryPassword();
+                    String encryptedPassword = CryptoUtils.encrypt(tempPassword);
+                    String panelId = !panelList.isEmpty() ? panelList.get(0).getId() : "";
+                    String teamNumber = generateNextTeamNumber(teamList, allocatedTeamNumbers);
+                    String syntheticEmail = Constants.buildTeamSyntheticEmail(username);
+
+                    Team newTeam = new Team(null, eventId, panelId, teamNumber, row.teamName,
+                            row.teamName + " Project", "General", row.leaderName, syntheticEmail,
+                            4, "", System.currentTimeMillis());
+                    newTeam.setUsername(username);
+                    newTeam.setEncryptedPassword(encryptedPassword);
+
+                    firebaseManager.createTeam(newTeam)
+                            .addOnSuccessListener(docRef -> {
+                                String teamId = docRef.getId();
+                                newTeam.setId(teamId);
+                                newTeam.setQrCodeData(generateQRDataPayload(teamId, teamNumber, row.teamName, eventId, panelId));
+                                firebaseManager.updateTeam(newTeam);
+
+                                firebaseManager.createTeamLeaderAccountWithUsername(this, username, tempPassword, encryptedPassword, row.leaderName, teamId)
+                                        .addOnSuccessListener(uid -> {
+                                            teamList.add(newTeam);
+                                            createdCredentials.add(new TeamCredential(row.teamName, row.leaderName, username, tempPassword));
+                                            processNextCsvRow(rows, index + 1, progressDialog, createdCredentials, failedRows, allocatedTeamNumbers);
+                                        })
+                                        .addOnFailureListener(authErr -> {
+                                            teamList.add(newTeam);
+                                            failedRows.add(new FailedRow(row, "Team created, but auth failed: " + authErr.getMessage()));
+                                            processNextCsvRow(rows, index + 1, progressDialog, createdCredentials, failedRows, allocatedTeamNumbers);
+                                        });
+                            })
+                            .addOnFailureListener(teamErr -> {
+                                failedRows.add(new FailedRow(row, "Failed to create team: " + teamErr.getMessage()));
+                                processNextCsvRow(rows, index + 1, progressDialog, createdCredentials, failedRows, allocatedTeamNumbers);
+                            });
+                })
+                .addOnFailureListener(userErr -> {
+                    failedRows.add(new FailedRow(row, "Failed to generate username: " + userErr.getMessage()));
+                    processNextCsvRow(rows, index + 1, progressDialog, createdCredentials, failedRows, allocatedTeamNumbers);
+                });
+    }
+
+    private void showCsvImportResultsDialog(List<CsvRow> originalRows,
+                                            List<TeamCredential> createdCredentials,
+                                            List<FailedRow> failedRows) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        View view = LayoutInflater.from(this).inflate(R.layout.dialog_csv_credentials, null);
+
+        TextView tvResultsSummary = view.findViewById(R.id.tvResultsSummary);
+        View cardPartialFailures = view.findViewById(R.id.cardPartialFailures);
+        TextView tvFailuresList = view.findViewById(R.id.tvFailuresList);
+        MaterialButton btnRetryFailed = view.findViewById(R.id.btnRetryFailed);
+        View cardCredentials = view.findViewById(R.id.cardCredentials);
+        TextView tvCredentialsText = view.findViewById(R.id.tvCredentialsText);
+        MaterialButton btnCopyAllCredentials = view.findViewById(R.id.btnCopyAllCredentials);
+        MaterialButton btnShareAllCredentials = view.findViewById(R.id.btnShareAllCredentials);
+        MaterialButton btnCloseResults = view.findViewById(R.id.btnCloseResults);
+
+        tvResultsSummary.setText(createdCredentials.size() + " team(s) successfully registered."
+                + (!failedRows.isEmpty() ? " (" + failedRows.size() + " failed)" : ""));
+
+        if (!failedRows.isEmpty()) {
+            cardPartialFailures.setVisibility(View.VISIBLE);
+            StringBuilder sbFailures = new StringBuilder();
+            for (FailedRow fr : failedRows) {
+                sbFailures.append("• Row ").append(fr.row.rowNumber).append(": ")
+                        .append(fr.row.teamName).append(" — ").append(fr.reason).append("\n");
+            }
+            tvFailuresList.setText(sbFailures.toString().trim());
+
+            btnRetryFailed.setText("Retry Failed (" + failedRows.size() + ")");
+            btnRetryFailed.setOnClickListener(v -> {
+                List<CsvRow> retryRows = new ArrayList<>();
+                for (FailedRow fr : failedRows) {
+                    retryRows.add(fr.row);
+                }
+                AlertDialog d = (AlertDialog) v.getTag();
+                if (d != null) d.dismiss();
+                startCsvBatchImport(retryRows);
+            });
+        } else {
+            cardPartialFailures.setVisibility(View.GONE);
+        }
+
+        final StringBuilder sbCreds = new StringBuilder();
+        if (!createdCredentials.isEmpty()) {
+            cardCredentials.setVisibility(View.VISIBLE);
+            for (int i = 0; i < createdCredentials.size(); i++) {
+                TeamCredential tc = createdCredentials.get(i);
+                sbCreds.append("Team: ").append(tc.teamName).append("\n")
+                        .append("Leader: ").append(tc.leaderName).append("\n")
+                        .append("Username: ").append(tc.username).append("\n")
+                        .append("Temporary Password: ").append(tc.temporaryPassword).append("\n");
+                if (i < createdCredentials.size() - 1) {
+                    sbCreds.append("----------------------------------------\n");
+                }
+            }
+            tvCredentialsText.setText(sbCreds.toString().trim());
+        } else {
+            cardCredentials.setVisibility(View.GONE);
+        }
+
+        AlertDialog dialog = builder.setView(view).create();
+        if (btnRetryFailed != null) {
+            btnRetryFailed.setTag(dialog);
+        }
+
+        btnCopyAllCredentials.setOnClickListener(v -> {
+            if (sbCreds.length() > 0) {
+                android.content.ClipboardManager cb = (android.content.ClipboardManager) getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                if (cb != null) {
+                    String eventTitle = currentEvent != null ? currentEvent.getName() : "JudgeX";
+                    String text = "JudgeX Team Credentials - " + eventTitle + "\n\n" + sbCreds.toString();
+                    android.content.ClipData clip = android.content.ClipData.newPlainText("JudgeX Credentials", text);
+                    cb.setPrimaryClip(clip);
+                    UIUtils.showToast(this, "Credentials copied to clipboard!");
+                }
+            } else {
+                UIUtils.showToast(this, "No credentials to copy.");
+            }
+        });
+
+        btnShareAllCredentials.setOnClickListener(v -> {
+            if (sbCreds.length() > 0) {
+                String eventTitle = currentEvent != null ? currentEvent.getName() : "JudgeX";
+                String text = "JudgeX Team Credentials - " + eventTitle + "\n\n" + sbCreds.toString();
+                Intent shareIntent = new Intent(Intent.ACTION_SEND);
+                shareIntent.setType("text/plain");
+                shareIntent.putExtra(Intent.EXTRA_SUBJECT, "JudgeX Team Credentials - " + eventTitle);
+                shareIntent.putExtra(Intent.EXTRA_TEXT, text);
+                startActivity(Intent.createChooser(shareIntent, "Share Team Credentials"));
+            } else {
+                UIUtils.showToast(this, "No credentials to share.");
+            }
+        });
+
+        btnCloseResults.setOnClickListener(v -> dialog.dismiss());
+
+        dialog.show();
+    }
+
     private String generateUniqueTeamNumber(List<Team> teams) {
+        return generateNextTeamNumber(teams, null);
+    }
+
+    private String generateNextTeamNumber(List<Team> teams, Set<String> allocatedNumbers) {
         int maxNum = 100;
         if (teams != null) {
             for (Team t : teams) {
@@ -421,7 +803,23 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
                 }
             }
         }
-        return "TM-" + (maxNum + 1);
+        if (allocatedNumbers != null) {
+            for (String s : allocatedNumbers) {
+                if (s != null && s.startsWith("TM-")) {
+                    try {
+                        int num = Integer.parseInt(s.substring(3).trim());
+                        if (num > maxNum) {
+                            maxNum = num;
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+        }
+        String next = "TM-" + (maxNum + 1);
+        if (allocatedNumbers != null) {
+            allocatedNumbers.add(next);
+        }
+        return next;
     }
 
     private void updateExistingTeamDetails(Team existingTeam, String number, String name, String title,
@@ -601,12 +999,12 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
         TextView tvStatus = view.findViewById(R.id.tvDetailsStatus);
         TextView tvQRPass = view.findViewById(R.id.tvDetailsQRPass);
 
-        tvTeamNumber.setText("🏷️ Team Number: " + (team.getTeamNumber() != null ? team.getTeamNumber() : "N/A"));
-        tvTeamName.setText("🚀 Team Name: " + (team.getTeamName() != null ? team.getTeamName() : "N/A"));
+        tvTeamNumber.setText("Team Number: " + (team.getTeamNumber() != null ? team.getTeamNumber() : "N/A"));
+        tvTeamName.setText("Team Name: " + (team.getTeamName() != null ? team.getTeamName() : "N/A"));
 
         if (team.getUsername() != null && !team.getUsername().isEmpty()) {
             tvUsername.setVisibility(View.VISIBLE);
-            tvUsername.setText("🔑 Login Username: " + team.getUsername());
+            tvUsername.setText("Login Username: " + team.getUsername());
         } else {
             tvUsername.setVisibility(View.GONE);
         }
@@ -646,21 +1044,21 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
             llPasswordRow.setVisibility(View.GONE);
         }
 
-        tvProject.setText("💡 Project: " + (team.getProjectTitle() != null ? team.getProjectTitle() : "N/A"));
-        tvCategory.setText("📂 Category: " + (team.getCategory() != null ? team.getCategory() : "General"));
-        tvLeaderName.setText("👤 Team Leader: " + (team.getLeaderName() != null ? team.getLeaderName() : "N/A"));
+        tvProject.setText("Project: " + (team.getProjectTitle() != null ? team.getProjectTitle() : "N/A"));
+        tvCategory.setText("Category: " + (team.getCategory() != null ? team.getCategory() : "General"));
+        tvLeaderName.setText("Team Leader: " + (team.getLeaderName() != null ? team.getLeaderName() : "N/A"));
 
         if (team.getLeaderEmail() != null && !team.getLeaderEmail().isEmpty() && !Constants.isSyntheticEmail(team.getLeaderEmail())) {
             tvLeaderEmail.setVisibility(View.VISIBLE);
-            tvLeaderEmail.setText("📧 Leader Email: " + team.getLeaderEmail());
+            tvLeaderEmail.setText("Leader Email: " + team.getLeaderEmail());
         } else {
             tvLeaderEmail.setVisibility(View.GONE);
         }
 
-        tvPanel.setText("⚖️ Panel Assignment: " + panelName);
-        tvMembers.setText("👥 Team Members: " + team.getMemberCount());
-        tvStatus.setText("🟢 Participation Status: " + (team.isUnregistered() ? "Unregistered / Removed" : "Active"));
-        tvQRPass.setText("🎫 Event QR Pass: " + (team.getQrCodeData() != null && !team.getQrCodeData().isEmpty() ? "Generated (v2 Secured)" : "Not Generated"));
+        tvPanel.setText("Panel Assignment: " + panelName);
+        tvMembers.setText("Team Members: " + team.getMemberCount());
+        tvStatus.setText("Participation Status: " + (team.isUnregistered() ? "Unregistered / Removed" : "Active"));
+        tvQRPass.setText("Event QR Pass: " + (team.getQrCodeData() != null && !team.getQrCodeData().isEmpty() ? "Generated (v2 Secured)" : "Not Generated"));
 
         builder.setView(view);
         builder.setPositiveButton("Close", (dialog, which) -> dialog.dismiss());
@@ -762,32 +1160,52 @@ public class TeamManagerActivity extends AppCompatActivity implements TeamAdapte
                             .setTitle("Delete Team: " + team.getTeamNumber() + " (" + team.getTeamName() + ")");
 
                     if (evalCount > 0) {
-                        builder.setMessage("⚠️ Warning: Team '" + team.getTeamName() + "' has " + evalCount + 
+                        builder.setMessage("Warning: Team '" + team.getTeamName() + "' has " + evalCount + 
                                 " existing evaluation record(s).\n\n" +
-                                "To maintain competition history, ranking integrity, and audit referential integrity without destructive data loss, this team will be marked as DELETED and hidden from active participants.\n\n" +
+                                "To maintain competition history, ranking integrity, and audit referential integrity without destructive data loss, this team will be marked as DELETED, unassigned from panels, and hidden from active participants.\n\n" +
                                 "Proceed with soft-deletion?")
                                 .setPositiveButton("Soft-Delete Record", (dialog, which) -> {
                                     Dialog loading = UIUtils.showLoadingDialog(this, "Soft-deleting team...");
-                                    team.setDeleted(true);
-                                    team.setStatus(Team.STATUS_DELETED);
-                                    firebaseManager.updateTeam(team)
+                                    firebaseManager.softDeleteTeam(team)
                                             .addOnSuccessListener(aVoid -> {
                                                 loading.dismiss();
-                                                UIUtils.showToast(this, "Team soft-deleted.");
+                                                UIUtils.showToast(this, "Team soft-deleted. Scoring and leaderboard history preserved.");
                                                 loadPanelsAndTeams();
                                             })
                                             .addOnFailureListener(e -> {
                                                 loading.dismiss();
                                                 UIUtils.showToast(this, "Failed to delete team: " + e.getMessage());
                                             });
+                                })
+                                .setNeutralButton("Permanently Delete", (dialog, which) -> {
+                                    new AlertDialog.Builder(this)
+                                            .setTitle("Permanently Delete Team: " + team.getTeamName())
+                                            .setMessage("DANGER: Permanently deleting '" + team.getTeamName() + "' will delete this team record, its " + 
+                                                    evalCount + " evaluation score(s), and associated team leader credentials.\n\n" +
+                                                    "This action cannot be undone.\n\nProceed with permanent deletion?")
+                                            .setPositiveButton("Delete Everything", (d2, w2) -> {
+                                                Dialog loading = UIUtils.showLoadingDialog(this, "Deleting team and evaluation records...");
+                                                firebaseManager.deleteTeam(team, true)
+                                                        .addOnSuccessListener(aVoid -> {
+                                                            loading.dismiss();
+                                                            UIUtils.showToast(this, "Team and evaluation records permanently deleted.");
+                                                            loadPanelsAndTeams();
+                                                        })
+                                                        .addOnFailureListener(e -> {
+                                                            loading.dismiss();
+                                                            UIUtils.showToast(this, "Failed to delete team: " + e.getMessage());
+                                                        });
+                                            })
+                                            .setNegativeButton("Cancel", (d2, w2) -> d2.dismiss())
+                                            .show();
                                 });
                     } else {
                         builder.setMessage("This team has no submitted evaluations.\n\n" +
-                                "It will be permanently removed from this competition event.\n\n" +
+                                "It will be permanently removed from this competition event along with its panel mapping and login credentials.\n\n" +
                                 "Are you sure you want to permanently delete '" + team.getTeamName() + "'?")
                                 .setPositiveButton("Permanently Delete", (dialog, which) -> {
                                     Dialog loading = UIUtils.showLoadingDialog(this, "Deleting team permanently...");
-                                    firebaseManager.deleteTeam(team.getId())
+                                    firebaseManager.deleteTeam(team, false)
                                             .addOnSuccessListener(aVoid -> {
                                                 loading.dismiss();
                                                 UIUtils.showToast(this, "Team permanently deleted.");

@@ -73,9 +73,9 @@ public class RankingAdapter extends RecyclerView.Adapter<RankingAdapter.RankingV
         int count = item.getEvaluationsCount();
         int totalJudges = item.getTotalAssignedJudges();
         if (totalJudges > 0) {
-            holder.tvEvaluationsCount.setText("📊 " + count + "/" + totalJudges + " Judges Evaluated");
+            holder.tvEvaluationsCount.setText(count + "/" + totalJudges + " Judges Evaluated");
         } else {
-            holder.tvEvaluationsCount.setText("📊 " + count + " Evaluations");
+            holder.tvEvaluationsCount.setText(count + " Evaluations");
         }
 
         if (count > 0) {

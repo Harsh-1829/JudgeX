@@ -180,7 +180,9 @@ public class User implements Serializable {
 
     public void setActive(boolean active) {
         this.active = active;
-        this.status = active ? STATUS_ACTIVE : STATUS_DEACTIVATED;
+        if (!isDeleted()) {
+            this.status = active ? STATUS_ACTIVE : STATUS_DEACTIVATED;
+        }
     }
 
     public long getCreatedAt() {
